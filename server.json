@@ -1,0 +1,22 @@
+{
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "io.github.akalongman/nbg-rates",
+    "title": "NBG Rates (National Bank of Georgia)",
+    "description": "Official National Bank of Georgia GEL exchange rates with per-unit values and date semantics",
+    "websiteUrl": "https://github.com/akalongman/nbg-rates-mcp",
+    "repository": {
+        "url": "https://github.com/akalongman/nbg-rates-mcp",
+        "source": "github"
+    },
+    "version": "0.1.0",
+    "packages": [
+        {
+            "registryType": "npm",
+            "registryBaseUrl": "https://registry.npmjs.org",
+            "identifier": "nbg-rates-mcp",
+            "version": "0.1.0",
+            "runtimeHint": "npx",
+            "transport": { "type": "stdio" }
+        }
+    ]
+}

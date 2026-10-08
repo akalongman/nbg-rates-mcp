@@ -1,0 +1,34 @@
+{
+    "manifest_version": "0.3",
+    "name": "nbg-rates-mcp",
+    "display_name": "NBG Rates (National Bank of Georgia)",
+    "version": "0.1.0",
+    "description": "Official National Bank of Georgia GEL exchange rates with per-unit values and date semantics",
+    "author": { "name": "Avtandil Kikabidze", "url": "https://github.com/akalongman" },
+    "repository": { "type": "git", "url": "https://github.com/akalongman/nbg-rates-mcp" },
+    "license": "MIT",
+    "keywords": ["nbg", "georgia", "gel", "lari", "exchange-rates", "currency"],
+    "server": {
+        "type": "node",
+        "entry_point": "dist/bin.js",
+        "mcp_config": {
+            "command": "node",
+            "args": ["${__dirname}/dist/bin.js"],
+            "env": {}
+        }
+    },
+    "tools": [
+        {
+            "name": "nbg_get_rates",
+            "description": "Official NBG rates in force on a calendar date, per one unit, with carried-over flag"
+        },
+        { "name": "nbg_convert", "description": "Convert an amount using the official NBG rate in force on a date" },
+        { "name": "nbg_list_currencies", "description": "Currencies NBG publishes a GEL rate for today" },
+        { "name": "nbg_rate_history", "description": "One currency's official rate for every calendar day in a range" }
+    ],
+    "compatibility": {
+        "claude_desktop": ">=1.0.0",
+        "platforms": ["darwin", "win32"],
+        "runtimes": { "node": ">=22.0.0" }
+    }
+}
