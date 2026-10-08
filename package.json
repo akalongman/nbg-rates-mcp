@@ -1,0 +1,65 @@
+{
+    "name": "nbg-rates-mcp",
+    "version": "0.1.0",
+    "description": "Official National Bank of Georgia (NBG) GEL exchange rates for AI agents, with correct per-unit values and date semantics",
+    "keywords": [
+        "nbg",
+        "national-bank-of-georgia",
+        "georgia",
+        "gel",
+        "lari",
+        "exchange-rates",
+        "currency",
+        "mcp",
+        "mcp-server"
+    ],
+    "license": "MIT",
+    "author": "Avtandil Kikabidze",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/akalongman/nbg-rates-mcp.git"
+    },
+    "homepage": "https://github.com/akalongman/nbg-rates-mcp#readme",
+    "bugs": "https://github.com/akalongman/nbg-rates-mcp/issues",
+    "mcpName": "io.github.akalongman/nbg-rates",
+    "type": "module",
+    "bin": {
+        "nbg-rates-mcp": "dist/bin.js"
+    },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+    ],
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "lint": "eslint .",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "test": "vitest run --project unit",
+        "test:e2e": "npm run build && vitest run --project e2e",
+        "test:contract": "NBG_LIVE=1 vitest run --project contract",
+        "record-fixtures": "tsx scripts/record-fixtures.ts",
+        "prepublishOnly": "npm run build"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/server": "^2.3.1",
+        "zod": "^4.6.5"
+    },
+    "devDependencies": {
+        "@modelcontextprotocol/client": "^2.3.1",
+        "@types/node": "^22.20.5",
+        "eslint": "^10.12.0",
+        "fast-check": "^4.10.2",
+        "prettier": "^3.9.9",
+        "tsx": "^4.23.15",
+        "typescript": "~6.0.3",
+        "typescript-eslint": "^8.71.1",
+        "vitest": "^5.0.3"
+    }
+}
