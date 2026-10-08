@@ -346,9 +346,12 @@ float arithmetic and documented as unrounded.
   `upstream_shape_changed`.
 - `cache.ts`: in-memory snapshot map keyed by language and requested date. A
   snapshot whose requested date is before today in Tbilisi is final whatever
-  its flag, because the past does not change. For today and later dates a
-  snapshot is final when `carriedOver` is false and provisional for ten
-  minutes when it is true (a late publication for today is possible). A
+  its flag. For today and later dates a snapshot is final when `carriedOver`
+  is false and provisional for ten minutes when it is true (a late
+  publication for today is possible). A final entry is kept for twelve
+  hours, not forever: nothing shows that NBG never corrects a published
+  rate, and a client left running for days would otherwise serve a
+  superseded value until restart. A
   live entry is never replaced by a snapshot with an older effective date:
   two requests straddling a publication can finish out of order. Capped at
   2000 entries, oldest evicted first. History is not cached: it is one
@@ -449,7 +452,8 @@ Vitest, tests co-located as `*.test.ts`.
 - Property tests with fast-check: converting A to B and back returns the
   amount within float tolerance; enumerating any valid range yields
   `to - from + 1` days in order without duplicates.
-- Shell: cache retention rules with an injected clock, and an older answer
+- Shell: cache retention rules with an injected clock (ten minutes provisional,
+  twelve hours final), and an older answer
   arriving after a newer one; the service not caching a "not published"
   answer across midnight; client timeout, single
   retry, user agent, content-type classification (an HTML block page is

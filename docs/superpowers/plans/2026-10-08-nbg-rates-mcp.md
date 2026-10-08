@@ -25,7 +25,7 @@
 - A requested date is settled when it is today or earlier, or when its effective date is not earlier than it. An unsettled answer is the error `rate_not_published`; a date later than tomorrow is rejected with that error before any request. A table valid from a day after the requested date means NBG ignored the date and is `upstream_shape_changed`. GEL to GEL conversion is the identity and needs no rate.
 - History: one CSV export request per call for the currency plus USD as the publication calendar, `start` 31 days before `from`, `end` equal to `to`. The rate in force on a day comes from the latest publication on or before it, and that publication must quote the currency; otherwise the day is `no_data_for_date` (never a repeated older rate). Range cap 366 days inclusive; no history cache; no concurrency helper.
 - HTTP: 10 s timeout, one retry after 500 ms on network error, HTTP 429 or 5xx, `User-Agent: nbg-rates-mcp/<version> (+https://github.com/akalongman/nbg-rates-mcp)`. A wrong content type or an unparseable body is `upstream_unavailable` without retry; a parsed body that fails the schema or the CSV checks is `upstream_shape_changed`.
-- Cache: keyed by language and requested date; only answers that passed `requirePublished` are stored; final when the requested date is before today in Tbilisi, or when `carriedOver` is false; otherwise ten minutes; a live entry is never replaced by one with an older effective date. Max 2000 entries.
+- Cache: keyed by language and requested date; only answers that passed `requirePublished` are stored; final (kept 12 hours, never forever) when the requested date is before today in Tbilisi, or when `carriedOver` is false; otherwise ten minutes; a live entry is never replaced by one with an older effective date. Max 2000 entries.
 - Precision: NBG rates and diffs have at most four decimals and rates are positive (true for all 261,022 archive rows, 2026-10-08); anything else is `upstream_shape_changed`, never rounded.
 - The NBG archive starts on `1995-10-14` (constant `NBG_ARCHIVE_START`).
 - stdout is the protocol channel. All logging goes to stderr. `NBG_RATES_DEBUG=1` enables upstream request logging. `NBG_RATES_BASE_URL` overrides `https://nbg.gov.ge`.
@@ -2677,7 +2677,7 @@ git commit -m "Add the NBG HTTP client with timeout, retry and content-type chec
 
 **Interfaces:**
 - Consumes: `RatesSnapshot`, `CalendarDate`, `Language` (Task 2); `todayIn`, `TBILISI_TIME_ZONE` (Task 2).
-- Produces: `createSnapshotCache(options?: { maxEntries?: number; provisionalTtlMs?: number; timeZone?: string }): SnapshotCache` with `SnapshotCache = { get(language: Language, requestedDate: CalendarDate, now: Date): RatesSnapshot | undefined; set(language: Language, requestedDate: CalendarDate, snapshot: RatesSnapshot, now: Date): void; readonly size: number }`. `set` keeps a live entry whose effective date is newer than the incoming snapshot's: two requests straddling a publication can finish out of order.
+- Produces: `createSnapshotCache(options?: { maxEntries?: number; provisionalTtlMs?: number; finalTtlMs?: number; timeZone?: string }): SnapshotCache` with `SnapshotCache = { get(language: Language, requestedDate: CalendarDate, now: Date): RatesSnapshot | undefined; set(language: Language, requestedDate: CalendarDate, snapshot: RatesSnapshot, now: Date): void; readonly size: number }`. `set` keeps a live entry whose effective date is newer than the incoming snapshot's: two requests straddling a publication can finish out of order.
 
 - [ ] **Step 1: Write the failing test `src/shell/cache.test.ts`**
 
@@ -2707,19 +2707,21 @@ function snapshot(requested: string, effective: string): RatesSnapshot {
 
 // 2026-10-08 10:00 in Tbilisi (UTC+4)
 const NOW = new Date('2026-10-08T06:00:00Z');
+const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 
 describe('createSnapshotCache', () => {
-    it('keeps a past carried-over snapshot (a 2024 Sunday) forever', () => {
+    it('keeps a past carried-over snapshot (a 2024 Sunday) for 12 hours, then asks NBG again', () => {
         const cache = createSnapshotCache({ provisionalTtlMs: 1000 });
         cache.set('en', date('2024-06-02'), snapshot('2024-06-02', '2024-06-01'), NOW);
-        const muchLater = new Date(NOW.getTime() + 365 * 86_400_000);
-        expect(cache.get('en', date('2024-06-02'), muchLater)).toBeDefined();
+        expect(cache.get('en', date('2024-06-02'), new Date(NOW.getTime() + TWELVE_HOURS - 1))).toBeDefined();
+        expect(cache.get('en', date('2024-06-02'), new Date(NOW.getTime() + TWELVE_HOURS + 1))).toBeUndefined();
     });
 
-    it('keeps a published snapshot for today forever', () => {
+    it('keeps a published snapshot for today for 12 hours, not forever', () => {
         const cache = createSnapshotCache({ provisionalTtlMs: 1000 });
         cache.set('en', date('2026-10-08'), snapshot('2026-10-08', '2026-10-08'), NOW);
-        expect(cache.get('en', date('2026-10-08'), new Date(NOW.getTime() + 86_400_000))).toBeDefined();
+        expect(cache.get('en', date('2026-10-08'), new Date(NOW.getTime() + TWELVE_HOURS - 1))).toBeDefined();
+        expect(cache.get('en', date('2026-10-08'), new Date(NOW.getTime() + TWELVE_HOURS + 1))).toBeUndefined();
     });
 
     it('expires a carried-over snapshot for tomorrow after the provisional TTL', () => {
@@ -2779,15 +2781,19 @@ export interface SnapshotCache {
 
 interface Entry {
     readonly snapshot: RatesSnapshot;
-    /** Undefined means final: never expires. */
-    readonly expiresAt: number | undefined;
+    readonly expiresAt: number;
 }
 
+/**
+ * A final entry (a rate that can no longer change) is kept for twelve hours, not forever: nothing proves NBG never
+ * corrects a published rate, and a client left running for days would otherwise keep a superseded value.
+ */
 export function createSnapshotCache(
-    options: { maxEntries?: number; provisionalTtlMs?: number; timeZone?: string } = {},
+    options: { maxEntries?: number; provisionalTtlMs?: number; finalTtlMs?: number; timeZone?: string } = {},
 ): SnapshotCache {
     const maxEntries = options.maxEntries ?? 2000;
     const provisionalTtlMs = options.provisionalTtlMs ?? 10 * 60 * 1000;
+    const finalTtlMs = options.finalTtlMs ?? 12 * 60 * 60 * 1000;
     const timeZone = options.timeZone ?? TBILISI_TIME_ZONE;
     const entries = new Map<string, Entry>();
 
@@ -2796,7 +2802,7 @@ export function createSnapshotCache(
     }
 
     function isExpired(entry: Entry, now: Date): boolean {
-        return entry.expiresAt !== undefined && now.getTime() > entry.expiresAt;
+        return now.getTime() > entry.expiresAt;
     }
 
     function isFinal(requestedDate: CalendarDate, snapshot: RatesSnapshot, now: Date): boolean {
@@ -2826,7 +2832,7 @@ export function createSnapshotCache(
                 // Two requests straddling a publication can finish out of order; the older table must not win.
                 return;
             }
-            const expiresAt = isFinal(requestedDate, snapshot, now) ? undefined : now.getTime() + provisionalTtlMs;
+            const expiresAt = now.getTime() + (isFinal(requestedDate, snapshot, now) ? finalTtlMs : provisionalTtlMs);
             entries.delete(entryKey);
             entries.set(entryKey, { snapshot, expiresAt });
             while (entries.size > maxEntries) {
