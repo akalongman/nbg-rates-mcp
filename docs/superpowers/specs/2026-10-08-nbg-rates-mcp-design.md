@@ -3,7 +3,8 @@
 Date: 2026-10-08
 Status: approved for planning; amended 2026-10-08 after live probing of
 nbg.gov.ge (carried-over semantics, CSV history source, archive start,
-timestamp zone)
+timestamp zone) and again after an external review (publication calendar
+for history, cache rules, upstream validation, re-runnable release)
 
 ## Purpose
 
@@ -109,6 +110,19 @@ fact in this section.
 - One year of USD is 250 rows in about 0.1 s; the whole USD archive since
   1995 is 10074 rows in 1.6 s. An unknown code returns the header only. An
   invalid `start` silently returns the latest row, like the JSON endpoint.
+- A currency can stop being quoted: BGN's last row is valid from 2025-12-31
+  (Bulgaria adopted the euro on 2026-01-01), while USD continues with
+  2026-01-01. Repeating a currency's last row across later days would invent
+  rates NBG never published.
+- The currency filter has gaps. Filtering on AZN (CSV `currencies=AZN`, and
+  the JSON `currencies=AZN` parameter alike) returns nothing for 2006 and
+  2007, although the unfiltered daily tables list AZN then (2006-06-01:
+  1.9989); AZN rows start on 2008-01-01. A CSV request that includes AZN for
+  that period comes back header-only for every currency in it. A row missing
+  from a filtered export is therefore not proof that NBG published nothing.
+- All 261,022 rows of the archive (43 codes, 1995-10-14 to 2026-10-08) have
+  rates and diffs with at most four decimals, positive rates, power-of-ten
+  quantities, seven fields and no quoting.
 
 ### Transport
 
@@ -144,8 +158,11 @@ A requested date is settled when it is today in Tbilisi or earlier, or when
 NBG has already published a rate valid from it. Every answer built from NBG
 data is for a settled date; an unsettled date fails with
 `rate_not_published`. A date later than tomorrow is rejected without calling
-NBG, because no rate for it can exist yet. GEL to GEL in `nbg_convert` is the
-identity and needs no rate, so it answers for any valid date.
+NBG, because no rate for it can exist yet. A table valid from a day after
+the requested date can only mean NBG ignored the date parameter (as it does
+for an invalid date), so it is `upstream_shape_changed`, never a rate. GEL to
+GEL in `nbg_convert` is the identity and needs no rate, so it answers for any
+valid date.
 
 Worked examples, all against the live data of 2026-10-08:
 
@@ -240,12 +257,20 @@ There is no `language` input, because the output contains no names, and no
 `diff`, because the CSV source gives it unsigned and on a carried-over day
 NBG's diff describes a change that did not happen that day.
 
-Source: one CSV export request for the currency with `start` 31 days before
-`from` (the longest observed gap between publications is five days, over
-New Year) and `end` equal to `to`. The rate in force on a day is the row
-with the latest `ValidFromDate` on or before it; ties go to the later
-publication date. The range is capped at 366 days per call, because each day
-costs about 35 tokens of model context, not because of upstream cost.
+Source: one CSV export request for the currency plus USD, with `start` 31
+days before `from` (the longest observed gap between publications is five
+days, over New Year) and `end` equal to `to`. USD is in every NBG table since
+the archive starts, so its rows are the publication calendar. For each day,
+the applicable publication is the latest `ValidFromDate` on or before it
+across all returned rows, and the currency must have a row valid from that
+same date; ties between rows go to the later publication date. When the
+currency is missing from the applicable publication (BGN after 2025-12-31,
+or a gap in NBG's filter such as AZN in 2006 and 2007) the day fails with
+`no_data_for_date` instead of repeating an older row. An export with no rows
+at all (a range before 1995-10-14) is `no_data_for_date` for `from`; an
+export with calendar rows but none for the currency is `unknown_currency`.
+The range is capped at 366 days per call, because each day costs about 35
+tokens of model context, not because of upstream cost.
 
 ### Resource template `nbg://rates/{date}`
 
@@ -276,22 +301,29 @@ never imports from shell or Node built-ins; an ESLint
   settledness predicate and the "later than tomorrow" rejection.
   `Asia/Tbilisi` and the archive start `1995-10-14` are constants here.
 - `nbg-schema.ts`: the Zod schema of the raw JSON response. Timestamps must
-  start with `YYYY-MM-DDT`; `validFromDate` is required; a table must have
-  at least one row and all rows must share one `validFromDate`. Unknown
-  extra fields are accepted.
+  start with a real calendar date and `T` (`2026-02-30T...` is a shape
+  change, not a crash); `validFromDate` is required; a table must have at
+  least one row and all rows must share one `validFromDate`; rates are
+  positive, and rates and diffs have at most four decimals, so a change in
+  NBG's precision is reported instead of rounded away. Unknown extra fields
+  are accepted.
 - `nbg-csv.ts`: the strict parser of the CSV export. It strips the byte-order
   mark, requires the exact header, rejects quoted fields and rows without
-  seven fields, and parses `M/D/YYYY` strictly. `nbg-schema.ts` and
-  `nbg-csv.ts` are the only places `upstream_shape_changed` is produced.
+  seven fields, parses `M/D/YYYY` strictly, and requires positive rates with
+  at most four decimals.
 - `normalize.ts`: parsed NBG table plus requested date to `RatesSnapshot`.
   Divides `rate` and `diff` by `quantity`, sets `effectiveDate` from
   `validFromDate`, sets `carriedOver`; selects and de-duplicates requested
-  codes and collects `unknownCodes`; turns an unsettled snapshot into
-  `rate_not_published`.
+  codes and collects `unknownCodes`; `requirePublished` turns a table valid
+  after the requested date into `upstream_shape_changed` and an unsettled
+  snapshot into `rate_not_published`. `nbg-schema.ts`, `nbg-csv.ts` and
+  `requirePublished` are the only places `upstream_shape_changed` is
+  produced.
 - `convert.ts`: cross-rate arithmetic on a snapshot. GEL has rate 1;
   `result = amount * rate(from) / rate(to)`.
-- `history.ts`: CSV rows plus the calendar days plus today to a
-  `HistorySeries`, picking the row in force on each day.
+- `history.ts`: CSV rows (the currency and the USD calendar) plus the
+  calendar days plus today to a `HistorySeries`, checking each day against
+  the applicable publication as described under `nbg_rate_history`.
 
 Decimal division: NBG rates have four decimals and quantities are powers of
 ten, so a per-unit value has exactly `4 + log10(quantity)` decimals.
@@ -304,7 +336,8 @@ float arithmetic and documented as unrounded.
 - `nbg-client.ts`: `fetchDay` fetches the full JSON table for one date and
   language; it never passes a `currencies` filter upstream, so one cache
   entry per date serves every later question about that date. `fetchRange`
-  fetches the CSV export for one currency and a `ValidFromDate` range.
+  fetches the CSV export for a list of currencies (one `currencies`
+  parameter each) and a `ValidFromDate` range.
   Ten-second timeout through `AbortSignal`, one retry after a 500 ms pause
   on network error, 429 or 5xx, a `User-Agent` naming the package and
   version. A response whose content type is not the expected one (JSON or
@@ -315,14 +348,18 @@ float arithmetic and documented as unrounded.
   snapshot whose requested date is before today in Tbilisi is final whatever
   its flag, because the past does not change. For today and later dates a
   snapshot is final when `carriedOver` is false and provisional for ten
-  minutes when it is true (tomorrow's rate appears at about 17:00 Tbilisi,
-  and a late publication for today is possible). Capped at 2000 entries,
-  oldest evicted first. History is not cached: it is one request of about
-  0.1 s.
+  minutes when it is true (a late publication for today is possible). A
+  live entry is never replaced by a snapshot with an older effective date:
+  two requests straddling a publication can finish out of order. Capped at
+  2000 entries, oldest evicted first. History is not cached: it is one
+  request of about 0.1 s.
 - `rates-service.ts`: `getSnapshot` rejects a date later than tomorrow,
-  reads through the cache and the client, normalises, and rejects an
-  unsettled answer. `getHistory` checks the range, makes one `fetchRange`
-  call and hands the rows to core.
+  reads through the cache and the client, normalises, and passes every
+  fetched answer through `requirePublished` before caching it. Unsettled or
+  impossible answers are never cached: a "not published" answer cached at
+  23:59 would otherwise turn into a success at 00:01 without NBG being asked
+  again. `getHistory` checks the range, makes one `fetchRange` call for the
+  currency and USD, and hands the rows to core.
 - `tool-schemas.ts`: the Zod input and output schemas of the four tools.
 - `server.ts`: builds the `McpServer`, registers the four tools and the
   resource template, maps core errors to MCP tool errors. Uses the v2
@@ -364,17 +401,18 @@ Error union:
    did not quote the code for the requested date and that
    `nbg_list_currencies` lists today's codes, since the list has changed
    over the years.
-4. `no_data_for_date`: no rate in force on a date (before the archive, or
-   before a currency was first quoted). Names the date, the currency when
-   known, and the archive start 1995-10-14.
+4. `no_data_for_date`: no rate in force on a date (before the archive,
+   before a currency was first quoted, after it was last quoted, or a day
+   whose publication NBG's filter does not return for it). Names the date,
+   the currency when known, and the archive start 1995-10-14.
 5. `rate_not_published`: the date is not settled. Names the date, the latest
    effective date when known, and the 17:00 publication rule.
 6. `upstream_unavailable`: network failure, timeout, 4xx, 5xx after one
    retry, or a body that is not the expected JSON or CSV (such as a
    firewall block page). Says the call can be retried.
 7. `upstream_shape_changed`: a parsed body that failed the JSON schema or the
-   CSV header and row checks. Asks the user to report it with the package
-   version.
+   CSV header and row checks, or a table valid from a day after the requested
+   date. Asks the user to report it with the package version.
 
 History is all or nothing: if the range request fails, or any day has no
 rate in force, the whole call fails and the message names the cause. A
@@ -394,19 +432,26 @@ Vitest, tests co-located as `*.test.ts`.
 - Core: `normalize` on recorded fixtures (a weekday, a Saturday with its own
   table, a carried-over Sunday and Monday, an old-era Sunday 2021-09-05 with
   its own row, a 2005 table, an empty answer); rows missing `validFromDate`
-  or disagreeing on it rejected; decimal division for every quantity power;
+  or disagreeing on it rejected, as are impossible timestamp dates,
+  non-positive rates and rates or diffs with more than four decimals; a
+  table valid after the requested date rejected; decimal division for every
+  quantity power;
   `dates` at 21:30 UTC (already tomorrow in Tbilisi), 29 February, the
   366-day cap, `2026-02-30`, NBG timestamp extraction under
   `TZ=America/Los_Angeles`, settledness for yesterday, today, tomorrow
   before and after publication, and later; the CSV parser on recorded
   exports and malformed input; `history` across a weekend, a range starting
   on a Sunday (in-force rate found through the lookback), the 2021
-  changeover, a currency not quoted yet, and an unpublished tail; `convert`
+  changeover, a currency not quoted yet, a currency no longer quoted (BGN
+  after 2025-12-31), a publication missing from a currency's rows, an export
+  with no rows, and an unpublished tail; `convert`
   with GEL on each side, a cross pair, and identical codes.
 - Property tests with fast-check: converting A to B and back returns the
   amount within float tolerance; enumerating any valid range yields
   `to - from + 1` days in order without duplicates.
-- Shell: cache retention rules with an injected clock; client timeout, single
+- Shell: cache retention rules with an injected clock, and an older answer
+  arriving after a newer one; the service not caching a "not published"
+  answer across midnight; client timeout, single
   retry, user agent, content-type classification (an HTML block page is
   `upstream_unavailable` without retry) against a local `node:http` fixture
   server reached through `NBG_RATES_BASE_URL`.
@@ -421,10 +466,12 @@ Vitest, tests co-located as `*.test.ts`.
   present and power-of-ten quantities and at most four raw decimals; Sunday
   and Monday 2026-10-04 and 2026-10-05 return the 2026-10-03 table;
   Saturday 2026-10-03 has its own; old-era Sunday 2021-09-05 has its own;
-  1995-10-13 is empty and 1995-10-14 has USD; Georgian names differ from
-  English; the CSV export has the expected header, `M/D/YYYY` dates and the
-  `ValidFromDate` filter; a one-year history through the service returns 366
-  days in one request. No exact rate values.
+  1995-10-13 is empty and 1995-10-14 has USD; the Georgian table returns
+  USD with a name in Georgian script (the check fails if the request
+  fails); the CSV export has the expected header, `M/D/YYYY` dates and the
+  `ValidFromDate` filter; BGN history ends with the publication valid from
+  2025-12-31 and fails for 2026-01-01; a one-year history through the
+  service returns 366 days in one request. No exact rate values.
 
 Not tested: exact rate values, NBG uptime, tool description prose.
 
@@ -440,13 +487,17 @@ GitHub Actions, three workflows, with `actions/checkout@v7` and
    test. On failure it opens an issue, or comments on the open one. This is
    the upstream-drift alarm.
 3. `release.yml` on a version tag, on Node 24 (npm 11.5.1 or later is needed
-   for trusted publishing; Node 22 bundles npm 10). Order: verify, build the
-   MCPB bundle and validate it, `npm publish` through npm trusted publishing
-   (workflow permission `id-token: write`, provenance generated
-   automatically, no token in the repository), create the GitHub release
-   with the bundle attached, `mcp-publisher publish` through its GitHub OIDC
-   login. `npm publish` is the only irreversible step, so everything that can
-   fail runs before it.
+   for trusted publishing; Node 22 bundles npm 10). Order: verify; check that
+   every version field equals the tag, each `server.json` package entry
+   included (`scripts/check-release.ts`); build the MCPB bundle and validate
+   it; `npm publish` through npm trusted publishing (workflow permission
+   `id-token: write`, provenance generated automatically, no token in the
+   repository); create the GitHub release with the bundle attached;
+   `mcp-publisher publish` through its GitHub OIDC login. `npm publish` is
+   the only irreversible step, so everything that can fail runs before it.
+   Each publishing step lives in `scripts/publish-release.sh` and first asks
+   its target whether the version is already there, so a job that failed
+   after `npm publish` can be re-run from the top.
 
 Dependabot (`.github/dependabot.yml`) checks npm and GitHub Actions weekly
 with minor and patch updates grouped.
@@ -454,7 +505,9 @@ with minor and patch updates grouped.
 First publish: trusted publishing can only be configured on a package that
 already exists, and a new configuration must complete a publish within two
 days. So 0.1.0 is published manually from the maintainer's machine with an
-OTP, the trusted publisher is then configured on npmjs.com, and the next tag
+OTP, the trusted publisher is then configured on npmjs.com with
+`npm publish` among its allowed actions (configurations created after
+2026-09-03 allow only `npm stage publish` by default), and the next tag
 proves the workflow. `repository.url` in `package.json` must match the
 GitHub URL exactly or provenance fails, and provenance requires a public
 repository.
@@ -505,6 +558,8 @@ test/e2e/                 stdio round trip against dist/
 test/contract/            live test, opt-in
 scripts/record-fixtures.ts
 scripts/build-bundle.sh
+scripts/check-release.ts    release preconditions: versions match the tag, npm new enough
+scripts/publish-release.sh  idempotent npm, GitHub release and registry steps
 docs/superpowers/         this design and the implementation plan
 .github/workflows/        ci.yml, contract.yml, release.yml
 .github/dependabot.yml    weekly npm and actions updates

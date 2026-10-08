@@ -22,10 +22,11 @@
 - Calendar dates are `YYYY-MM-DD` strings. NBG timestamps are Tbilisi wall-clock values with a misleading `Z` suffix; a calendar date is taken from one as its first ten characters, never through a `Date` object. No output field carries an NBG timestamp (there is no `publishedAt`).
 - "Today" is the calendar date in `Asia/Tbilisi`, computed with `Intl.DateTimeFormat#formatToParts`.
 - `carriedOver` is true when `effectiveDate < requestedDate`. There is no `isFallback` field.
-- A requested date is settled when it is today or earlier, or when its effective date is not earlier than it. An unsettled answer is the error `rate_not_published`; a date later than tomorrow is rejected with that error before any request. GEL to GEL conversion is the identity and needs no rate.
-- History: one CSV export request per call, `start` 31 days before `from`, `end` equal to `to`; range cap 366 days inclusive; no history cache; no concurrency helper.
+- A requested date is settled when it is today or earlier, or when its effective date is not earlier than it. An unsettled answer is the error `rate_not_published`; a date later than tomorrow is rejected with that error before any request. A table valid from a day after the requested date means NBG ignored the date and is `upstream_shape_changed`. GEL to GEL conversion is the identity and needs no rate.
+- History: one CSV export request per call for the currency plus USD as the publication calendar, `start` 31 days before `from`, `end` equal to `to`. The rate in force on a day comes from the latest publication on or before it, and that publication must quote the currency; otherwise the day is `no_data_for_date` (never a repeated older rate). Range cap 366 days inclusive; no history cache; no concurrency helper.
 - HTTP: 10 s timeout, one retry after 500 ms on network error, HTTP 429 or 5xx, `User-Agent: nbg-rates-mcp/<version> (+https://github.com/akalongman/nbg-rates-mcp)`. A wrong content type or an unparseable body is `upstream_unavailable` without retry; a parsed body that fails the schema or the CSV checks is `upstream_shape_changed`.
-- Cache: keyed by language and requested date; final when the requested date is before today in Tbilisi, or when `carriedOver` is false; otherwise ten minutes. Max 2000 entries.
+- Cache: keyed by language and requested date; only answers that passed `requirePublished` are stored; final when the requested date is before today in Tbilisi, or when `carriedOver` is false; otherwise ten minutes; a live entry is never replaced by one with an older effective date. Max 2000 entries.
+- Precision: NBG rates and diffs have at most four decimals and rates are positive (true for all 261,022 archive rows, 2026-10-08); anything else is `upstream_shape_changed`, never rounded.
 - The NBG archive starts on `1995-10-14` (constant `NBG_ARCHIVE_START`).
 - stdout is the protocol channel. All logging goes to stderr. `NBG_RATES_DEBUG=1` enables upstream request logging. `NBG_RATES_BASE_URL` overrides `https://nbg.gov.ge`.
 - Commit messages: short imperative title, no attribution trailers. Commit with explicit paths: `git add <paths> && git commit -m "<title>" -- <paths>`.
@@ -35,7 +36,7 @@
 
 1. A date NBG has not published yet: `2026-10-09` asked at 10:00 Tbilisi on 2026-10-08, and `2099-01-01` at any time. Expected: `rate_not_published` naming the date (for tomorrow also the latest effective date), never today's rate presented as that date's; no upstream request for 2099. Pinned in Task 2 (`isSettled`, `rejectBeyondTomorrow`), Task 4 (`requirePublished`), Task 9 (service) and Task 10 (end to end).
 2. A Monday after a weekend: `2026-10-05` answers with the table valid from Saturday `2026-10-03` and `carriedOver: true`; Saturday itself is not carried over; the old-era Sunday `2021-09-05` is not carried over. Pinned in Task 4, Task 6 and Task 10.
-3. A history range that starts on a carried-over day (`2026-10-04` to `2026-10-06`): the first day carries Saturday's rate found through the 31-day lookback, not an error and not a hole. Pinned in Task 6 and Task 9.
+3. History edges: a range that starts on a carried-over day (`2026-10-04` to `2026-10-06`) carries Saturday's rate found through the 31-day lookback; a range past a currency's last publication (BGN, last valid from 2025-12-31 before the euro) fails with `no_data_for_date` for 2026-01-01 instead of repeating 1.6227; a publication missing from the currency's rows is a gap, not a bridge. Pinned in Task 6, Task 9 and Task 11.
 4. NBG answering 200 with an HTML firewall block page (the site sits behind an F5 firewall): `upstream_unavailable` without a retry, never `upstream_shape_changed`, which would tell users to file a bug and trip the drift alarm. Pinned in Task 7.
 5. The process started with `TZ=America/Los_Angeles` late in the evening: "today" is already tomorrow in Tbilisi, and `validFromDate: "2026-10-08T00:00:00.000Z"` yields `2026-10-08`, not `2026-10-07`. Pinned in Task 2 and Task 10.
 
@@ -65,7 +66,7 @@
 | `test/e2e/stdio.test.ts` | Spawns `dist/bin.js` through the MCP client |
 | `test/contract/nbg-live.test.ts` | Live test, opt-in with `NBG_LIVE=1` |
 | `.github/workflows/ci.yml`, `contract.yml`, `release.yml`, `.github/dependabot.yml`, `.github/ISSUE_TEMPLATE/bug_report.md` | CI and release |
-| `server.json`, `manifest.json`, `.mcpbignore`, `scripts/build-bundle.sh`, `README.md`, `CHANGELOG.md` | Publishing and docs |
+| `server.json`, `manifest.json`, `.mcpbignore`, `scripts/build-bundle.sh`, `scripts/check-release.ts`, `scripts/publish-release.sh`, `README.md`, `CHANGELOG.md` | Publishing and docs |
 
 ---
 
@@ -870,7 +871,8 @@ git commit -m "Add core types, currency codes and calendar dates" -- src/core/ty
   - `type NbgCurrencyRow = { code: string; quantity: number; rate: number; diff: number; name: string; date: string; validFromDate: string }` (plus unknown extra keys)
   - `type NbgDay = { date: string; currencies: ReadonlyArray<NbgCurrencyRow> }` with at least one row, all rows sharing one `validFromDate`
   - `parseNbgResponse(json: unknown): Result<ReadonlyArray<NbgDay>, RatesError>` (empty array is a valid, empty result)
-  - `isPowerOfTen(value: number): boolean` (also used by the CSV parser in Task 6)
+  - `isPowerOfTen(value: number): boolean` (also used by the CSV parser in Task 6), `hasAtMostFourDecimals(value: number): boolean`
+  - Timestamps are validated as real calendar dates (`2026-02-30T...` is a shape change, not a crash); rates must be positive; rates and diffs have at most four decimals
   - `test/helpers/fixtures.ts`: `loadFixture(name: string): unknown` and `fixturePath(name: string): string` for JSON fixtures named `<language>-<date>`; `csvExport(codes: ReadonlyArray<string>, start: string, end: string): string`, which emulates the NBG CSV export over the recorded `csv-<CODE>.csv` files (header always present, rows filtered on `ValidFromDate`, unknown codes contribute no rows)
   - Recorded JSON fixtures: `en-2026-10-01` through `en-2026-10-07`, `ka-2026-10-07`, `en-2021-09-05`, `en-2005-03-15`, `en-1995-01-01`
   - Recorded CSV fixtures: `csv-USD.csv`, `csv-AMD.csv`, rows valid from 2026-08-01 to 2026-10-07
@@ -1004,7 +1006,7 @@ export function csvExport(codes: ReadonlyArray<string>, start: string, end: stri
 ```ts
 import { describe, expect, it } from 'vitest';
 import { loadFixture } from '../../test/helpers/fixtures.js';
-import { isPowerOfTen, parseNbgResponse } from './nbg-schema.js';
+import { hasAtMostFourDecimals, isPowerOfTen, parseNbgResponse } from './nbg-schema.js';
 
 function row(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
@@ -1096,6 +1098,19 @@ describe('parseNbgResponse', () => {
         expect(parseNbgResponse(table([row({ validFromDate: '07.10.2026' })])).ok).toBe(false);
     });
 
+    it('rejects a timestamp whose calendar date does not exist, as a shape change rather than a crash', () => {
+        const result = parseNbgResponse(table([row({ validFromDate: '2026-02-30T00:00:00.000Z' })]));
+        expect(result.ok === false && result.error.kind).toBe('upstream_shape_changed');
+    });
+
+    it('rejects a rate that is not positive or has more than four decimals, instead of rounding it', () => {
+        for (const rate of [0, -2.6, 2.60191]) {
+            const result = parseNbgResponse(table([row({ rate })]));
+            expect(result.ok === false && result.error.kind, String(rate)).toBe('upstream_shape_changed');
+        }
+        expect(parseNbgResponse(table([row({ diff: 0.00001 })])).ok).toBe(false);
+    });
+
     it('rejects a renamed field with a detail naming the path', () => {
         const result = parseNbgResponse([{ date: '2026-10-07T00:00:00.000Z', items: [] }]);
         expect(result.ok).toBe(false);
@@ -1116,6 +1131,13 @@ describe('isPowerOfTen', () => {
         expect([0, 2, 20, 0.1, -10, 1.5].some(isPowerOfTen)).toBe(false);
     });
 });
+
+describe('hasAtMostFourDecimals', () => {
+    it('accepts NBG precision and rejects anything finer', () => {
+        expect([2.6021, 7.1762, 0.0151, 1, 0].every(hasAtMostFourDecimals)).toBe(true);
+        expect([2.60191, 0.00001, 1.23456].some(hasAtMostFourDecimals)).toBe(false);
+    });
+});
 ```
 
 - [ ] **Step 5: Run it to verify it fails**
@@ -1127,27 +1149,39 @@ Expected: FAIL, cannot find module `./nbg-schema.js`.
 
 ```ts
 import * as z from 'zod';
+import { parseCalendarDate } from './dates.js';
 import { err, ok, type RatesError, type Result } from './types.js';
-
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T/;
 
 export function isPowerOfTen(value: number): boolean {
     return Number.isInteger(value) && /^10*$/.test(String(value));
 }
 
+/** Every NBG rate and diff since 1995 has at most four decimals; per-unit rounding relies on it. */
+export function hasAtMostFourDecimals(value: number): boolean {
+    return Math.abs(value * 10_000 - Math.round(value * 10_000)) < 1e-6;
+}
+
+/** An NBG timestamp starts with a real calendar date and "T"; its time part is Tbilisi wall clock and never read. */
+function isNbgTimestamp(value: string): boolean {
+    return value[10] === 'T' && parseCalendarDate(value.slice(0, 10)).ok;
+}
+
+const timestamp = z.string().refine(isNbgTimestamp, 'not a timestamp with a real calendar date');
+const fourDecimals = 'more than four decimals';
+
 const nbgCurrencyRowSchema = z.looseObject({
     code: z.string().min(1),
     quantity: z.number().refine(isPowerOfTen, 'quantity is not a power of ten'),
-    rate: z.number(),
-    diff: z.number(),
+    rate: z.number().positive().refine(hasAtMostFourDecimals, fourDecimals),
+    diff: z.number().refine(hasAtMostFourDecimals, fourDecimals),
     name: z.string(),
-    date: z.string().regex(TIMESTAMP),
-    validFromDate: z.string().regex(TIMESTAMP),
+    date: timestamp,
+    validFromDate: timestamp,
 });
 
 const nbgDaySchema = z
     .looseObject({
-        date: z.string().regex(TIMESTAMP),
+        date: timestamp,
         currencies: z.array(nbgCurrencyRowSchema).min(1),
     })
     .refine((day) => new Set(day.currencies.map((row) => row.validFromDate.slice(0, 10))).size === 1, {
@@ -1178,7 +1212,7 @@ export function parseNbgResponse(json: unknown): Result<ReadonlyArray<NbgDay>, R
 - [ ] **Step 7: Run the tests, lint and typecheck**
 
 Run: `npx vitest run src/core/nbg-schema.test.ts && npm run lint && npm run typecheck`
-Expected: PASS (12 tests), lint and typecheck clean. The core import ban allows `zod` because it is not a Node built-in and not under `shell/`.
+Expected: PASS (15 tests), lint and typecheck clean. The core import ban allows `zod` because it is not a Node built-in and not under `shell/`.
 
 - [ ] **Step 8: Commit**
 
@@ -1197,7 +1231,7 @@ git commit -m "Add the NBG response schema and recorded fixtures" -- src/core/nb
 - Produces:
   - `perUnit(value: number, quantity: number): number`
   - `normalizeSnapshot(day: NbgDay, requestedDate: CalendarDate): RatesSnapshot` (full table, `unknownCodes` empty)
-  - `requirePublished(snapshot: RatesSnapshot, today: CalendarDate): Result<RatesSnapshot, RatesError>` (`rate_not_published` with the snapshot's effective date as `latestEffectiveDate` when unsettled)
+  - `requirePublished(snapshot: RatesSnapshot, today: CalendarDate): Result<RatesSnapshot, RatesError>` (`upstream_shape_changed` when the table is valid from a day after the requested date; `rate_not_published` with the snapshot's effective date as `latestEffectiveDate` when unsettled)
   - `selectCurrencies(snapshot: RatesSnapshot, codes: ReadonlyArray<CurrencyCode>): RatesSnapshot` (filtered rates in request order, duplicates ignored, `unknownCodes` filled)
 
 - [ ] **Step 1: Write the failing test `src/core/normalize.test.ts`**
@@ -1303,7 +1337,7 @@ describe('normalizeSnapshot', () => {
         const georgian = normalizeSnapshot(day('ka-2026-10-07'), date('2026-10-07'));
         const english = normalizeSnapshot(day('en-2026-10-07'), date('2026-10-07'));
         const usd = georgian.rates.find((entry) => entry.code === 'USD');
-        expect(usd?.name).not.toBe('US Dollar');
+        expect(usd?.name).toMatch(/[\u10A0-\u10FF]/);
         expect(usd?.rate).toBe(english.rates.find((entry) => entry.code === 'USD')?.rate);
     });
 });
@@ -1328,6 +1362,17 @@ describe('requirePublished', () => {
     it('accepts tomorrow once NBG published a rate valid from it', () => {
         const published = normalizeSnapshot(day('en-2026-10-07'), date('2026-10-07'));
         expect(requirePublished(published, date('2026-10-06')).ok).toBe(true);
+    });
+
+    it('rejects a table that took effect after the requested date as a shape change', () => {
+        // What NBG would return if it stopped honouring the date parameter: today's table for a 2005 request.
+        const wrongTable = normalizeSnapshot(day('en-2026-10-07'), date('2005-03-15'));
+        const result = requirePublished(wrongTable, date('2026-10-08'));
+        expect(result.ok === false && result.error.kind).toBe('upstream_shape_changed');
+        if (!result.ok && result.error.kind === 'upstream_shape_changed') {
+            expect(result.error.detail).toContain('2005-03-15');
+            expect(result.error.detail).toContain('2026-10-07');
+        }
     });
 
     it('rejects a far-future date', () => {
@@ -1407,8 +1452,18 @@ export function normalizeSnapshot(day: NbgDay, requestedDate: CalendarDate): Rat
     };
 }
 
-/** Turns an answer for a date NBG has not published yet into an error instead of a stale rate. */
+/**
+ * Accepts only an answer that is the rate in force on the requested date: a table valid from a later day means NBG
+ * ignored the date (a shape change), and an answer for a date NBG has not published yet becomes an error instead of
+ * a stale rate.
+ */
 export function requirePublished(snapshot: RatesSnapshot, today: CalendarDate): Result<RatesSnapshot, RatesError> {
+    if (snapshot.effectiveDate > snapshot.requestedDate) {
+        return err({
+            kind: 'upstream_shape_changed',
+            detail: `NBG answered ${snapshot.requestedDate} with a table valid from ${snapshot.effectiveDate}`,
+        });
+    }
     if (isSettled(snapshot.requestedDate, snapshot.effectiveDate, today)) {
         return ok(snapshot);
     }
@@ -1440,7 +1495,7 @@ The `as CurrencyCode` is a boundary assertion: the row passed the schema and NBG
 - [ ] **Step 4: Run tests, lint, typecheck**
 
 Run: `npx vitest run src/core/normalize.test.ts && npm run lint && npm run typecheck`
-Expected: PASS (16 tests).
+Expected: PASS (17 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -1648,10 +1703,10 @@ git commit -m "Add conversion through GEL" -- src/core/convert.ts src/core/conve
   - `NBG_CSV_HEADER = 'Code,Quantity,Rate,Diff,Name,Date,ValidFromDate'`
   - `interface NbgCsvRow { code: string; quantity: number; rate: number; publishedOn: CalendarDate; validFrom: CalendarDate }`
   - `parseNbgCsv(text: string): Result<ReadonlyArray<NbgCsvRow>, RatesError>`
-  - `HISTORY_LOOKBACK_DAYS = 31`
+  - `HISTORY_LOOKBACK_DAYS = 31`, `CALENDAR_CURRENCY` (`USD` as a `CurrencyCode`)
   - `assembleHistory(currency: CurrencyCode, days: ReadonlyArray<CalendarDate>, rows: ReadonlyArray<NbgCsvRow>, today: CalendarDate): Result<HistorySeries, RatesError>`
 
-The CSV export (spec, "CSV export endpoint") returns one row per publication, newest first, with `M/D/YYYY` dates, a Georgian-only `Name` and an unsigned `Diff`; `start` and `end` filter on `ValidFromDate`. The parser keeps only what history needs, and `assembleHistory` picks for each calendar day the row with the latest `ValidFromDate` on or before it.
+The CSV export (spec, "CSV export endpoint") returns one row per publication, newest first, with `M/D/YYYY` dates, a Georgian-only `Name` and an unsigned `Diff`; `start` and `end` filter on `ValidFromDate`. The parser keeps only what history needs. `assembleHistory` receives the requested currency's rows plus USD rows as the publication calendar, and for each calendar day takes the latest publication on or before it; the currency's row must belong to that publication. Two live facts make that check necessary: NBG stopped quoting BGN after the publication valid from 2025-12-31 (euro adoption), and its currency filter returns no AZN rows for 2006 and 2007 although the daily tables list AZN. Without the check, history would repeat the last row across such gaps.
 
 - [ ] **Step 1: Write the failing CSV test `src/core/nbg-csv.test.ts`**
 
@@ -1719,6 +1774,8 @@ describe('parseNbgCsv', () => {
             'USD,3,2.6039,0.0003,x,10/2/2026,10/3/2026',
             'USD,1,2.60.39,0.0003,x,10/2/2026,10/3/2026',
             'usd,1,2.6039,0.0003,x,10/2/2026,10/3/2026',
+            'USD,1,2.60391,0.0003,x,10/2/2026,10/3/2026',
+            'USD,1,0.0000,0.0003,x,10/2/2026,10/3/2026',
         ];
         for (const line of malformed) {
             expect(parseNbgCsv(`${NBG_CSV_HEADER}\n${line}\n`).ok, line).toBe(false);
@@ -1752,7 +1809,8 @@ export interface NbgCsvRow {
 }
 
 const US_DATE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
-const DECIMAL = /^\d+(\.\d+)?$/;
+/** At most four decimals, like every NBG rate since 1995: per-unit rounding relies on it. */
+const RATE = /^\d+(\.\d{1,4})?$/;
 const INTEGER = /^\d+$/;
 const CODE = /^[A-Z]{3}$/;
 
@@ -1797,7 +1855,8 @@ export function parseNbgCsv(text: string): Result<ReadonlyArray<NbgCsvRow>, Rate
             !CODE.test(code) ||
             !INTEGER.test(quantityField) ||
             !isPowerOfTen(quantity) ||
-            !DECIMAL.test(rateField) ||
+            !RATE.test(rateField) ||
+            Number(rateField) <= 0 ||
             publishedOn === undefined ||
             validFrom === undefined
         ) {
@@ -1834,6 +1893,27 @@ const OCTOBER_2026 = [
     'USD,1,2.6039,0.0003,აშშ დოლარი,10/2/2026,10/3/2026',
     'USD,1,2.6042,0.0005,აშშ დოლარი,10/1/2026,10/2/2026',
     'USD,1,2.6047,0.0004,აშშ დოლარი,9/30/2026,10/1/2026',
+].join('\n');
+
+/** AMD rows for the same publications, so OCTOBER_2026 can serve as the USD publication calendar. */
+const AMD_OCTOBER_2026 = [
+    'AMD,1000,7.1748,0.0035,სომხური დრამი,10/7/2026,10/8/2026',
+    'AMD,1000,7.1783,0.0004,სომხური დრამი,10/6/2026,10/7/2026',
+    'AMD,1000,7.1779,0.0017,სომხური დრამი,10/5/2026,10/6/2026',
+    'AMD,1000,7.1762,0.0120,სომხური დრამი,10/2/2026,10/3/2026',
+    'AMD,1000,7.1642,0.0038,სომხური დრამი,10/1/2026,10/2/2026',
+    'AMD,1000,7.1680,0.0013,სომხური დრამი,9/30/2026,10/1/2026',
+];
+
+/** Bulgaria adopted the euro on 2026-01-01: the publication valid from 2025-12-31 is the last one with BGN. */
+const BGN_EURO_CHANGEOVER = [
+    NBG_CSV_HEADER,
+    'USD,1,2.6968,0.0005,აშშ დოლარი,1/5/2026,1/6/2026',
+    'USD,1,2.6963,0.0012,აშშ დოლარი,12/31/2025,1/1/2026',
+    'BGN,1,1.6227,0.0000,ბულგარული ლევი,12/30/2025,12/31/2025',
+    'USD,1,2.6951,0.0004,აშშ დოლარი,12/30/2025,12/31/2025',
+    'BGN,1,1.6227,0.0003,ბულგარული ლევი,12/29/2025,12/30/2025',
+    'USD,1,2.6955,0.0004,აშშ დოლარი,12/29/2025,12/30/2025',
 ].join('\n');
 
 /** Before the September 2021 changeover NBG stored a row for every calendar day, Sunday 5 September included. */
@@ -1957,10 +2037,40 @@ describe('assembleHistory', () => {
         });
     });
 
-    it('fails with unknown_currency when NBG published nothing for the code', () => {
-        expect(assembleHistory(code('XXX'), days('2026-10-01', '2026-10-02'), rows(NBG_CSV_HEADER), TODAY)).toEqual({
+    it('fails with unknown_currency when the calendar has publications but none quotes the code', () => {
+        expect(assembleHistory(code('XXX'), days('2026-10-01', '2026-10-02'), rows(OCTOBER_2026), TODAY)).toEqual({
             ok: false,
             error: { kind: 'unknown_currency', code: 'XXX' },
+        });
+    });
+
+    it('fails with no_data_for_date when the export has no publication at all (before the archive)', () => {
+        expect(assembleHistory(code('USD'), days('1995-10-01', '1995-10-13'), rows(NBG_CSV_HEADER), TODAY)).toEqual({
+            ok: false,
+            error: { kind: 'no_data_for_date', date: '1995-10-01', currency: 'USD' },
+        });
+    });
+
+    it('stops at the last publication that quotes a currency instead of repeating its rate', () => {
+        const bgn = rows(BGN_EURO_CHANGEOVER);
+        const lastDays = assembleHistory(code('BGN'), days('2025-12-30', '2025-12-31'), bgn, TODAY);
+        expect(lastDays.ok && lastDays.value.days.map((point) => point.rate)).toEqual([1.6227, 1.6227]);
+        expect(assembleHistory(code('BGN'), days('2025-12-30', '2026-01-02'), bgn, TODAY)).toEqual({
+            ok: false,
+            error: { kind: 'no_data_for_date', date: '2026-01-01', currency: 'BGN' },
+        });
+    });
+
+    it('fails on a publication missing from the currency rows instead of bridging the gap', () => {
+        const amdWithGap = AMD_OCTOBER_2026.filter((line) => !line.endsWith('10/6/2026'));
+        const exported = rows([OCTOBER_2026, ...amdWithGap].join('\n'));
+        const complete = assembleHistory(code('AMD'), days('2026-10-03', '2026-10-05'), exported, TODAY);
+        expect(complete.ok && complete.value.days.map((point) => point.rate)).toEqual([
+            0.0071762, 0.0071762, 0.0071762,
+        ]);
+        expect(assembleHistory(code('AMD'), days('2026-10-05', '2026-10-07'), exported, TODAY)).toEqual({
+            ok: false,
+            error: { kind: 'no_data_for_date', date: '2026-10-06', currency: 'AMD' },
         });
     });
 
@@ -1998,10 +2108,22 @@ import {
  */
 export const HISTORY_LOOKBACK_DAYS = 31;
 
+/**
+ * Requested alongside every other currency as the publication calendar: USD is in every NBG table since the
+ * archive starts, so its rows show which publications exist even when the requested currency is missing from some.
+ */
+export const CALENDAR_CURRENCY = 'USD' as CurrencyCode;
+
 function compareDates(left: CalendarDate, right: CalendarDate): number {
     return left < right ? -1 : left > right ? 1 : 0;
 }
 
+/**
+ * Builds one point per calendar day from CSV export rows of the requested currency and the calendar currency.
+ * The rate in force on a day comes from the latest publication valid on or before it, and that publication must
+ * quote the currency: NBG dropped BGN after 2025-12-31, and its currency filter misses AZN in 2006 and 2007, so a
+ * currency row older than the latest publication is a gap, never a rate to repeat.
+ */
 export function assembleHistory(
     currency: CurrencyCode,
     days: ReadonlyArray<CalendarDate>,
@@ -2013,6 +2135,11 @@ export function assembleHistory(
     if (first === undefined || last === undefined) {
         throw new Error('assembleHistory needs at least one day');
     }
+    const publications = [...new Set(rows.map((row) => row.validFrom))].sort(compareDates);
+    const latestPublication = publications[publications.length - 1];
+    if (latestPublication === undefined) {
+        return err({ kind: 'no_data_for_date', date: first, currency });
+    }
     // Oldest first; on equal validFrom the later publication wins because it is applied last.
     const ordered = rows
         .filter((row) => row.code === currency)
@@ -2020,31 +2147,38 @@ export function assembleHistory(
             (left, right) =>
                 compareDates(left.validFrom, right.validFrom) || compareDates(left.publishedOn, right.publishedOn),
         );
-    const latest = ordered[ordered.length - 1];
-    if (latest === undefined) {
+    if (ordered.length === 0) {
         return err({ kind: 'unknown_currency', code: currency });
     }
     const points: HistoryPoint[] = [];
     let inForce: NbgCsvRow | undefined;
-    let nextIndex = 0;
+    let nextRow = 0;
+    let publication: CalendarDate | undefined;
+    let nextPublication = 0;
     for (const day of days) {
-        let candidate = ordered[nextIndex];
+        let candidate = ordered[nextRow];
         while (candidate !== undefined && candidate.validFrom <= day) {
             inForce = candidate;
-            nextIndex += 1;
-            candidate = ordered[nextIndex];
+            nextRow += 1;
+            candidate = ordered[nextRow];
         }
-        if (inForce === undefined) {
+        let upcoming = publications[nextPublication];
+        while (upcoming !== undefined && upcoming <= day) {
+            publication = upcoming;
+            nextPublication += 1;
+            upcoming = publications[nextPublication];
+        }
+        if (publication === undefined || inForce === undefined || inForce.validFrom !== publication) {
             return err({ kind: 'no_data_for_date', date: day, currency });
         }
-        if (!isSettled(day, inForce.validFrom, today)) {
-            return err({ kind: 'rate_not_published', date: day, latestEffectiveDate: latest.validFrom });
+        if (!isSettled(day, publication, today)) {
+            return err({ kind: 'rate_not_published', date: day, latestEffectiveDate: latestPublication });
         }
         points.push({
             date: day,
-            effectiveDate: inForce.validFrom,
+            effectiveDate: publication,
             rate: perUnit(inForce.rate, inForce.quantity),
-            carriedOver: inForce.validFrom < day,
+            carriedOver: publication < day,
         });
     }
     return ok({ currency, from: first, to: last, days: points });
@@ -2056,7 +2190,7 @@ export function assembleHistory(
 - [ ] **Step 8: Run tests, lint, typecheck**
 
 Run: `npx vitest run src/core && npm run lint && npm run typecheck`
-Expected: all core tests PASS (history: 8 tests).
+Expected: all core tests PASS (history: 11 tests).
 
 - [ ] **Step 9: Commit**
 
@@ -2074,7 +2208,7 @@ git commit -m "Add the NBG CSV parser and history assembly" -- src/core/nbg-csv.
 - Consumes: `parseNbgResponse`, `NbgDay` (Task 3); `parseNbgCsv`, `NbgCsvRow` (Task 6); `CalendarDate`, `CurrencyCode`, `Language`, `Result`, `RatesError`, `ok`, `err` (Task 2); `fixturePath`, `csvExport` (Task 3).
 - Produces:
   - `startFixtureServer(): Promise<FixtureServer>` where `FixtureServer = { baseUrl: string; requests: Array<{ url: string; headers: Record<string, string | string[] | undefined> }>; setResponder(fn: Responder | undefined): void; close(): Promise<void> }` and `Responder = (url: URL) => { status: number; body: string; contentType?: string; delayMs?: number } | undefined`
-  - `createNbgClient(options: NbgClientOptions): NbgClient` with `NbgClient = { fetchDay(date: CalendarDate, language: Language): Promise<Result<NbgDay, RatesError>>; fetchRange(currency: CurrencyCode, start: CalendarDate, end: CalendarDate): Promise<Result<ReadonlyArray<NbgCsvRow>, RatesError>> }` and `NbgClientOptions = { baseUrl: string; userAgent: string; timeoutMs?: number; retryDelayMs?: number; fetchImpl?: typeof fetch; log?: (message: string) => void }`
+  - `createNbgClient(options: NbgClientOptions): NbgClient` with `NbgClient = { fetchDay(date: CalendarDate, language: Language): Promise<Result<NbgDay, RatesError>>; fetchRange(currencies: ReadonlyArray<CurrencyCode>, start: CalendarDate, end: CalendarDate): Promise<Result<ReadonlyArray<NbgCsvRow>, RatesError>> }` (`fetchRange` sends one `currencies` parameter per code) and `NbgClientOptions = { baseUrl: string; userAgent: string; timeoutMs?: number; retryDelayMs?: number; fetchImpl?: typeof fetch; log?: (message: string) => void }`
 
 - [ ] **Step 1: Write `test/helpers/fixture-server.ts`**
 
@@ -2327,8 +2461,8 @@ describe('createNbgClient', () => {
     });
 
     describe('fetchRange', () => {
-        it('asks the CSV export for one currency and a ValidFromDate range', async () => {
-            const result = await client().fetchRange(code('USD'), date('2026-10-03'), date('2026-10-05'));
+        it('asks the CSV export for a currency and a ValidFromDate range', async () => {
+            const result = await client().fetchRange([code('USD')], date('2026-10-03'), date('2026-10-05'));
             expect(server.requests[0]?.url).toBe(
                 '/gw/api/ct/monetarypolicy/currencies/export/csv?currencies=USD&start=2026-10-03&end=2026-10-05',
             );
@@ -2338,8 +2472,20 @@ describe('createNbgClient', () => {
             });
         });
 
+        it('asks for several currencies in one export, one currencies parameter each', async () => {
+            const result = await client().fetchRange(
+                [code('AMD'), code('USD')],
+                date('2026-10-03'),
+                date('2026-10-03'),
+            );
+            expect(server.requests[0]?.url).toBe(
+                '/gw/api/ct/monetarypolicy/currencies/export/csv?currencies=AMD&currencies=USD&start=2026-10-03&end=2026-10-03',
+            );
+            expect(result.ok && result.value.map((row) => row.code).sort()).toEqual(['AMD', 'USD']);
+        });
+
         it('returns no rows for an unknown code', async () => {
-            expect(await client().fetchRange(code('XXX'), date('2026-10-01'), date('2026-10-07'))).toEqual({
+            expect(await client().fetchRange([code('XXX')], date('2026-10-01'), date('2026-10-07'))).toEqual({
                 ok: true,
                 value: [],
             });
@@ -2347,13 +2493,13 @@ describe('createNbgClient', () => {
 
         it('reports an HTML block page as upstream_unavailable, not as a changed CSV header', async () => {
             server.setResponder(() => ({ status: 200, body: BLOCK_PAGE, contentType: 'text/html' }));
-            const result = await client().fetchRange(code('USD'), date('2026-10-01'), date('2026-10-07'));
+            const result = await client().fetchRange([code('USD')], date('2026-10-01'), date('2026-10-07'));
             expect(result.ok === false && result.error.kind).toBe('upstream_unavailable');
         });
 
         it('reports a CSV with a changed header as upstream_shape_changed', async () => {
             server.setResponder(() => ({ status: 200, body: 'Code;Rate\n', contentType: 'application/csv' }));
-            const result = await client().fetchRange(code('USD'), date('2026-10-01'), date('2026-10-07'));
+            const result = await client().fetchRange([code('USD')], date('2026-10-01'), date('2026-10-07'));
             expect(result.ok === false && result.error.kind).toBe('upstream_shape_changed');
         });
     });
@@ -2392,7 +2538,7 @@ export interface NbgClientOptions {
 export interface NbgClient {
     fetchDay(date: CalendarDate, language: Language): Promise<Result<NbgDay, RatesError>>;
     fetchRange(
-        currency: CurrencyCode,
+        currencies: ReadonlyArray<CurrencyCode>,
         start: CalendarDate,
         end: CalendarDate,
     ): Promise<Result<ReadonlyArray<NbgCsvRow>, RatesError>>;
@@ -2499,8 +2645,9 @@ export function createNbgClient(options: NbgClientOptions): NbgClient {
             return ok(day);
         },
 
-        async fetchRange(currency, start, end) {
-            const url = `${options.baseUrl}${API_PATH}/export/csv?currencies=${currency}&start=${start}&end=${end}`;
+        async fetchRange(currencies, start, end) {
+            const codes = currencies.map((code) => `currencies=${code}`).join('&');
+            const url = `${options.baseUrl}${API_PATH}/export/csv?${codes}&start=${start}&end=${end}`;
             const text = await fetchText(url, 'csv');
             if (!text.ok) {
                 return text;
@@ -2514,7 +2661,7 @@ export function createNbgClient(options: NbgClientOptions): NbgClient {
 - [ ] **Step 5: Run tests, lint, typecheck**
 
 Run: `npx vitest run src/shell/nbg-client.test.ts && npm run lint && npm run typecheck`
-Expected: PASS (17 tests). The `as unknown` after `JSON.parse` is the documented boundary assertion.
+Expected: PASS (18 tests). The `as unknown` after `JSON.parse` is the documented boundary assertion.
 
 - [ ] **Step 6: Commit**
 
@@ -2530,7 +2677,7 @@ git commit -m "Add the NBG HTTP client with timeout, retry and content-type chec
 
 **Interfaces:**
 - Consumes: `RatesSnapshot`, `CalendarDate`, `Language` (Task 2); `todayIn`, `TBILISI_TIME_ZONE` (Task 2).
-- Produces: `createSnapshotCache(options?: { maxEntries?: number; provisionalTtlMs?: number; timeZone?: string }): SnapshotCache` with `SnapshotCache = { get(language: Language, requestedDate: CalendarDate, now: Date): RatesSnapshot | undefined; set(language: Language, requestedDate: CalendarDate, snapshot: RatesSnapshot, now: Date): void; readonly size: number }`
+- Produces: `createSnapshotCache(options?: { maxEntries?: number; provisionalTtlMs?: number; timeZone?: string }): SnapshotCache` with `SnapshotCache = { get(language: Language, requestedDate: CalendarDate, now: Date): RatesSnapshot | undefined; set(language: Language, requestedDate: CalendarDate, snapshot: RatesSnapshot, now: Date): void; readonly size: number }`. `set` keeps a live entry whose effective date is newer than the incoming snapshot's: two requests straddling a publication can finish out of order.
 
 - [ ] **Step 1: Write the failing test `src/shell/cache.test.ts`**
 
@@ -2588,6 +2735,13 @@ describe('createSnapshotCache', () => {
         expect(cache.get('en', date('2026-10-08'), new Date(NOW.getTime() + 1001))).toBeUndefined();
     });
 
+    it('keeps a newer table when a slower, older answer for the same date arrives later', () => {
+        const cache = createSnapshotCache();
+        cache.set('en', date('2026-10-08'), snapshot('2026-10-08', '2026-10-08'), NOW);
+        cache.set('en', date('2026-10-08'), snapshot('2026-10-08', '2026-10-07'), NOW);
+        expect(cache.get('en', date('2026-10-08'), NOW)?.effectiveDate).toBe('2026-10-08');
+    });
+
     it('separates languages', () => {
         const cache = createSnapshotCache();
         cache.set('en', date('2026-10-07'), snapshot('2026-10-07', '2026-10-07'), NOW);
@@ -2641,6 +2795,10 @@ export function createSnapshotCache(
         return `${language}:${requestedDate}`;
     }
 
+    function isExpired(entry: Entry, now: Date): boolean {
+        return entry.expiresAt !== undefined && now.getTime() > entry.expiresAt;
+    }
+
     function isFinal(requestedDate: CalendarDate, snapshot: RatesSnapshot, now: Date): boolean {
         if (requestedDate < todayIn(timeZone, now)) {
             return true;
@@ -2654,15 +2812,21 @@ export function createSnapshotCache(
             if (entry === undefined) {
                 return undefined;
             }
-            if (entry.expiresAt !== undefined && now.getTime() > entry.expiresAt) {
+            if (isExpired(entry, now)) {
                 entries.delete(key(language, requestedDate));
                 return undefined;
             }
             return entry.snapshot;
         },
         set(language, requestedDate, snapshot, now) {
-            const expiresAt = isFinal(requestedDate, snapshot, now) ? undefined : now.getTime() + provisionalTtlMs;
             const entryKey = key(language, requestedDate);
+            const existing = entries.get(entryKey);
+            const existingIsLive = existing !== undefined && !isExpired(existing, now);
+            if (existingIsLive && existing.snapshot.effectiveDate > snapshot.effectiveDate) {
+                // Two requests straddling a publication can finish out of order; the older table must not win.
+                return;
+            }
+            const expiresAt = isFinal(requestedDate, snapshot, now) ? undefined : now.getTime() + provisionalTtlMs;
             entries.delete(entryKey);
             entries.set(entryKey, { snapshot, expiresAt });
             while (entries.size > maxEntries) {
@@ -2700,12 +2864,12 @@ git commit -m "Add the snapshot cache with finality rules" -- src/shell/cache.ts
 - Create: `src/shell/rates-service.ts`, `src/shell/rates-service.test.ts`
 
 **Interfaces:**
-- Consumes: `NbgClient` (Task 7), `SnapshotCache` (Task 8), `normalizeSnapshot`, `selectCurrencies`, `requirePublished` (Task 4), `assembleHistory`, `HISTORY_LOOKBACK_DAYS`, `parseNbgCsv` (Task 6), `enumerateDays`, `addDays`, `todayIn`, `rejectBeyondTomorrow`, `TBILISI_TIME_ZONE` (Task 2), core types; `loadFixture`, `csvExport` (Task 3 helpers, tests only).
+- Consumes: `NbgClient` (Task 7), `SnapshotCache` (Task 8), `normalizeSnapshot`, `selectCurrencies`, `requirePublished` (Task 4), `assembleHistory`, `HISTORY_LOOKBACK_DAYS`, `CALENDAR_CURRENCY`, `parseNbgCsv` (Task 6), `enumerateDays`, `addDays`, `todayIn`, `rejectBeyondTomorrow`, `TBILISI_TIME_ZONE` (Task 2), core types; `loadFixture`, `csvExport` (Task 3 helpers, tests only).
 - Produces:
   - `createRatesService(deps: { client: NbgClient; cache: SnapshotCache; now: () => Date }): RatesService` with
     `RatesService = { getSnapshot(args: { date: CalendarDate; language: Language; codes?: ReadonlyArray<CurrencyCode> }): Promise<Result<RatesSnapshot, RatesError>>; getHistory(args: { currency: CurrencyCode; from: CalendarDate; to: CalendarDate }): Promise<Result<HistorySeries, RatesError>> }`
 
-`getSnapshot` rejects a date later than tomorrow before touching the cache or NBG, reads through the cache, and turns an unsettled answer into `rate_not_published`. The cache keeps that provisional answer for ten minutes (Task 8), so asking for tomorrow repeatedly before 17:00 costs one request per ten minutes. `getHistory` makes exactly one CSV request.
+`getSnapshot` rejects a date later than tomorrow before touching the cache or NBG, reads through the cache, and passes every fetched answer through `requirePublished` before caching it. An unsettled or impossible answer is never cached: a "not published" answer cached at 23:59 would otherwise become a success at 00:01 without NBG being asked again. `getHistory` makes exactly one CSV request, for the currency plus `CALENDAR_CURRENCY`.
 
 - [ ] **Step 1: Write the failing test `src/shell/rates-service.test.ts`**
 
@@ -2779,12 +2943,12 @@ function fakeClient(options: { failDate?: string; failRange?: boolean } = {}) {
             const value = RECORDED.has(requested) && language === 'en' ? requested : '2026-10-07';
             return Promise.resolve(fixtureDay(language === 'ka' ? 'ka' : 'en', value));
         },
-        fetchRange(currency, start, end) {
-            calls.push(`range:${currency}:${start}:${end}`);
+        fetchRange(currencies, start, end) {
+            calls.push(`range:${currencies.join(',')}:${start}:${end}`);
             if (options.failRange === true) {
                 return Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' }));
             }
-            return Promise.resolve(parseNbgCsv(csvExport([currency], start, end)));
+            return Promise.resolve(parseNbgCsv(csvExport(currencies, start, end)));
         },
     };
     return { client, calls };
@@ -2793,9 +2957,10 @@ function fakeClient(options: { failDate?: string; failRange?: boolean } = {}) {
 // 2026-10-08 10:00 in Tbilisi (UTC+4): today is 2026-10-08, tomorrow's rate is not published yet.
 const NOW = new Date('2026-10-08T06:00:00Z');
 
-function service(options: { failDate?: string; failRange?: boolean } = {}) {
+function service(options: { failDate?: string; failRange?: boolean; now?: () => Date } = {}) {
     const { client, calls } = fakeClient(options);
-    return { service: createRatesService({ client, cache: createSnapshotCache(), now: () => NOW }), calls };
+    const now = options.now ?? (() => NOW);
+    return { service: createRatesService({ client, cache: createSnapshotCache(), now }), calls };
 }
 
 describe('getSnapshot', () => {
@@ -2838,6 +3003,25 @@ describe('getSnapshot', () => {
         expect(calls).toEqual([]);
     });
 
+    it('does not cache a not-yet-published answer, so the date is asked again after midnight', async () => {
+        let clock = new Date('2026-10-08T19:59:00Z'); // 23:59 in Tbilisi
+        const { service: rates, calls } = service({ now: () => clock });
+        const before = await rates.getSnapshot({ date: date('2026-10-09'), language: 'en' });
+        expect(before.ok === false && before.error.kind).toBe('rate_not_published');
+        clock = new Date('2026-10-08T20:01:00Z'); // 00:01 on 2026-10-09
+        await rates.getSnapshot({ date: date('2026-10-09'), language: 'en' });
+        expect(calls).toEqual(['day:en:2026-10-09', 'day:en:2026-10-09']);
+    });
+
+    it('rejects a table valid after the requested date (NBG ignoring the date) and does not cache it', async () => {
+        const { service: rates, calls } = service();
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const result = await rates.getSnapshot({ date: date('2010-01-04'), language: 'en' });
+            expect(result.ok === false && result.error.kind).toBe('upstream_shape_changed');
+        }
+        expect(calls).toEqual(['day:en:2010-01-04', 'day:en:2010-01-04']);
+    });
+
     it('passes upstream errors through', async () => {
         const { service: rates } = service({ failDate: '2026-10-07' });
         const result = await rates.getSnapshot({ date: date('2026-10-07'), language: 'en' });
@@ -2854,6 +3038,12 @@ describe('getHistory', () => {
             to: date('2026-10-07'),
         });
         expect(calls).toEqual(['range:USD:2026-08-31:2026-10-07']);
+        expect(result.ok && result.value.days[0]).toEqual({
+            date: '2026-10-01',
+            effectiveDate: '2026-10-01',
+            rate: 2.6047,
+            carriedOver: false,
+        });
         expect(result.ok).toBe(true);
         if (result.ok) {
             expect(result.value.days.map((point) => point.date)).toEqual([
@@ -2870,6 +3060,17 @@ describe('getHistory', () => {
                 '2026-10-05',
             ]);
         }
+    });
+
+    it('asks for the USD publication calendar alongside any other currency', async () => {
+        const { service: rates, calls } = service();
+        const result = await rates.getHistory({
+            currency: code('AMD'),
+            from: date('2026-10-03'),
+            to: date('2026-10-05'),
+        });
+        expect(calls).toEqual(['range:AMD,USD:2026-09-02:2026-10-05']);
+        expect(result.ok && result.value.days.map((point) => point.rate)).toEqual([0.0071762, 0.0071762, 0.0071762]);
     });
 
     it('starts a range on a Sunday with the Saturday rate found through the lookback', async () => {
@@ -2935,7 +3136,7 @@ Expected: FAIL, cannot find module `./rates-service.js`.
 
 ```ts
 import { TBILISI_TIME_ZONE, addDays, enumerateDays, rejectBeyondTomorrow, todayIn } from '../core/dates.js';
-import { HISTORY_LOOKBACK_DAYS, assembleHistory } from '../core/history.js';
+import { CALENDAR_CURRENCY, HISTORY_LOOKBACK_DAYS, assembleHistory } from '../core/history.js';
 import { normalizeSnapshot, requirePublished, selectCurrencies } from '../core/normalize.js';
 import {
     ok,
@@ -2964,7 +3165,12 @@ export interface RatesService {
 }
 
 export function createRatesService(deps: { client: NbgClient; cache: SnapshotCache; now: () => Date }): RatesService {
-    async function fullSnapshot(date: CalendarDate, language: Language): Promise<Result<RatesSnapshot, RatesError>> {
+    /** Only an answer that passed requirePublished is cached, so a cached entry never needs re-checking. */
+    async function settledSnapshot(
+        date: CalendarDate,
+        language: Language,
+        today: CalendarDate,
+    ): Promise<Result<RatesSnapshot, RatesError>> {
         const cached = deps.cache.get(language, date, deps.now());
         if (cached !== undefined) {
             return ok(cached);
@@ -2973,9 +3179,11 @@ export function createRatesService(deps: { client: NbgClient; cache: SnapshotCac
         if (!day.ok) {
             return day;
         }
-        const snapshot = normalizeSnapshot(day.value, date);
-        deps.cache.set(language, date, snapshot, deps.now());
-        return ok(snapshot);
+        const snapshot = requirePublished(normalizeSnapshot(day.value, date), today);
+        if (snapshot.ok) {
+            deps.cache.set(language, date, snapshot.value, deps.now());
+        }
+        return snapshot;
     }
 
     return {
@@ -2985,15 +3193,11 @@ export function createRatesService(deps: { client: NbgClient; cache: SnapshotCac
             if (!reachable.ok) {
                 return reachable;
             }
-            const snapshot = await fullSnapshot(date, language);
+            const snapshot = await settledSnapshot(date, language, today);
             if (!snapshot.ok) {
                 return snapshot;
             }
-            const settled = requirePublished(snapshot.value, today);
-            if (!settled.ok) {
-                return settled;
-            }
-            return ok(codes === undefined ? settled.value : selectCurrencies(settled.value, codes));
+            return ok(codes === undefined ? snapshot.value : selectCurrencies(snapshot.value, codes));
         },
 
         async getHistory({ currency, from, to }) {
@@ -3006,7 +3210,8 @@ export function createRatesService(deps: { client: NbgClient; cache: SnapshotCac
             if (!reachable.ok) {
                 return reachable;
             }
-            const rows = await deps.client.fetchRange(currency, addDays(from, -HISTORY_LOOKBACK_DAYS), to);
+            const currencies = currency === CALENDAR_CURRENCY ? [currency] : [currency, CALENDAR_CURRENCY];
+            const rows = await deps.client.fetchRange(currencies, addDays(from, -HISTORY_LOOKBACK_DAYS), to);
             if (!rows.ok) {
                 return rows;
             }
@@ -3019,7 +3224,7 @@ export function createRatesService(deps: { client: NbgClient; cache: SnapshotCac
 - [ ] **Step 4: Run tests, lint, typecheck**
 
 Run: `npx vitest run src/shell && npm run lint && npm run typecheck`
-Expected: all shell tests PASS (rates service: 11 tests).
+Expected: all shell tests PASS (rates service: 14 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -3915,11 +4120,30 @@ describe.skipIf(!LIVE)('nbg.gov.ge contract', () => {
 
     it('serves Georgian names', async () => {
         const result = await service.getSnapshot({ date: date('2026-10-07'), language: 'ka', codes: [code('USD')] });
-        expect(result.ok && result.value.rates[0]?.name).not.toBe('US Dollar');
+        expect(result.ok, JSON.stringify(result)).toBe(true);
+        if (result.ok) {
+            expect(result.value.rates.map((entry) => entry.code)).toEqual(['USD']);
+            expect(result.value.rates[0]?.name).toMatch(/[\u10A0-\u10FF]/);
+        }
+    });
+
+    it('ends BGN with the publication valid from 2025-12-31 (euro adoption), without repeating it', async () => {
+        const last = await service.getHistory({
+            currency: code('BGN'),
+            from: date('2025-12-29'),
+            to: date('2025-12-31'),
+        });
+        expect(last.ok, JSON.stringify(last).slice(0, 300)).toBe(true);
+        const after = await service.getHistory({
+            currency: code('BGN'),
+            from: date('2025-12-29'),
+            to: date('2026-01-02'),
+        });
+        expect(after).toEqual({ ok: false, error: { kind: 'no_data_for_date', date: '2026-01-01', currency: 'BGN' } });
     });
 
     it('serves the CSV export with its header, M/D/YYYY dates and the ValidFromDate filter', async () => {
-        const result = await client.fetchRange(code('USD'), date('2026-10-03'), date('2026-10-05'));
+        const result = await client.fetchRange([code('USD')], date('2026-10-03'), date('2026-10-05'));
         expect(result).toMatchObject({
             ok: true,
             value: [{ code: 'USD', quantity: 1, publishedOn: '2026-10-02', validFrom: '2026-10-03' }],
@@ -3927,7 +4151,7 @@ describe.skipIf(!LIVE)('nbg.gov.ge contract', () => {
     });
 
     it('answers an unknown code in the CSV export with the header only', async () => {
-        expect(await client.fetchRange(code('XXX'), date('2026-10-01'), date('2026-10-07'))).toEqual({
+        expect(await client.fetchRange([code('XXX')], date('2026-10-01'), date('2026-10-07'))).toEqual({
             ok: true,
             value: [],
         });
@@ -3952,7 +4176,7 @@ describe.skipIf(!LIVE)('nbg.gov.ge contract', () => {
 - [ ] **Step 2: Run it live once**
 
 Run: `npm run test:contract`
-Expected: PASS (9 tests). Note the printed request line for the year of history in the task report. If any test fails, stop and report the failing assertion: it means nbg.gov.ge no longer behaves as the spec's "Upstream facts" section says, and the spec must be corrected before the code.
+Expected: PASS (10 tests). Note the printed request line for the year of history in the task report. If any test fails, stop and report the failing assertion: it means nbg.gov.ge no longer behaves as the spec's "Upstream facts" section says, and the spec must be corrected before the code.
 
 - [ ] **Step 3: Write `.github/workflows/contract.yml`**
 
@@ -4059,7 +4283,7 @@ Expected: the manual dispatch runs and finishes green. Watch it with `gh run wat
 ### Task 12: README, changelog, registry manifest, MCPB bundle and release workflow
 
 **Files:**
-- Create: `README.md`, `CHANGELOG.md`, `server.json`, `manifest.json`, `.mcpbignore`, `.github/workflows/release.yml`, `scripts/build-bundle.sh`
+- Create: `README.md`, `CHANGELOG.md`, `server.json`, `manifest.json`, `.mcpbignore`, `.github/workflows/release.yml`, `scripts/build-bundle.sh`, `scripts/check-release.ts`, `scripts/publish-release.sh`
 
 **Interfaces:**
 - Consumes: the built `dist/` from Task 10 and the tool names and descriptions it registers.
@@ -4209,9 +4433,137 @@ echo "built nbg-rates-mcp-${version}.mcpb"
 Run: `chmod +x scripts/build-bundle.sh && bash -n scripts/build-bundle.sh && ./scripts/build-bundle.sh && unzip -l nbg-rates-mcp-0.1.0.mcpb | head -20`
 Expected: validation passes; the listing shows `manifest.json`, `dist/bin.js`, `package.json` (the binary reads its version from it), `node_modules/@modelcontextprotocol/server/...` and `node_modules/zod/...`, and no `src/` or `test/`.
 
-- [ ] **Step 5: Write `.github/workflows/release.yml`**
+- [ ] **Step 5: Write the release scripts `scripts/check-release.ts` and `scripts/publish-release.sh`**
 
-The order matters: everything that can fail (tests, version check, npm version, bundle build and validation) runs before `npm publish`, the only step that cannot be undone. The job runs Node 24 because trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10. `package-manager-cache: false` follows npm's trusted-publishing example, so a publishing job never restores a cache.
+The workflow decides when each step runs; these scripts decide what it does, so both can be run and checked locally.
+
+`scripts/check-release.ts` fails unless every version field equals the tag's version, including each `server.json` package entry (the version registry clients install), and unless npm is at least 11.5.1:
+
+```ts
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import * as z from 'zod';
+
+/**
+ * Release preconditions, checked before anything is published: every version field equals the tag's version
+ * (including each server.json package entry, which is what registry clients install), and the npm CLI is new
+ * enough for trusted publishing. Usage: tsx scripts/check-release.ts <version>
+ */
+
+const MINIMUM_NPM = [11, 5, 1] as const;
+
+const versioned = z.object({ version: z.string() });
+const serverManifest = versioned.extend({ packages: z.array(versioned).min(1) });
+
+function readVersioned<T extends z.ZodType>(path: string, schema: T): z.infer<T> {
+    return schema.parse(JSON.parse(readFileSync(path, 'utf8')));
+}
+
+function isAtLeast(actual: string, minimum: ReadonlyArray<number>): boolean {
+    const parts = actual.split('.').map(Number);
+    for (const [index, wanted] of minimum.entries()) {
+        const part = parts[index] ?? 0;
+        if (part !== wanted) {
+            return part > wanted;
+        }
+    }
+    return true;
+}
+
+const [tagVersion] = process.argv.slice(2);
+if (tagVersion === undefined) {
+    console.error('usage: tsx scripts/check-release.ts <version>');
+    process.exit(2);
+}
+
+const server = readVersioned('server.json', serverManifest);
+const versions: ReadonlyArray<readonly [string, string]> = [
+    ['package.json', readVersioned('package.json', versioned).version],
+    ['manifest.json', readVersioned('manifest.json', versioned).version],
+    ['server.json', server.version],
+    ...server.packages.map((entry, index) => [`server.json packages[${index}]`, entry.version] as const),
+];
+const problems = versions
+    .filter(([, version]) => version !== tagVersion)
+    .map(([file, version]) => `${file} has ${version}, the tag is ${tagVersion}`);
+
+const npmVersion = execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim();
+if (!isAtLeast(npmVersion, MINIMUM_NPM)) {
+    problems.push(`npm ${npmVersion} is older than ${MINIMUM_NPM.join('.')}, which trusted publishing needs`);
+}
+
+for (const problem of problems) {
+    console.error(problem);
+}
+process.exitCode = problems.length === 0 ? 0 : 1;
+```
+
+`scripts/publish-release.sh` makes each publishing step idempotent: it first asks the target whether this version is already there (`npm view`, `gh release view`, the registry's `GET /v0.1/servers/{name}/versions/{version}`, which answers 200 or 404), so a job that failed after `npm publish` can be re-run from the top:
+
+```bash
+#!/usr/bin/env bash
+# Idempotent release steps: each checks whether its target already has this
+# version before acting, so a release job that failed halfway can be re-run
+# from the top (npm refuses to publish an existing version twice).
+# Usage: scripts/publish-release.sh <npm|github|registry> <version>
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+usage='usage: scripts/publish-release.sh <npm|github|registry> <version>'
+step=${1:?$usage}
+version=${2:?$usage}
+package=nbg-rates-mcp
+server=io.github.akalongman/nbg-rates
+
+publish_npm() {
+    if [ "$(npm view "$package@$version" version 2> /dev/null || true)" = "$version" ]; then
+        echo "$package@$version is already on npm"
+        return
+    fi
+    npm publish --access public
+}
+
+publish_github() {
+    if gh release view "v$version" > /dev/null 2>&1; then
+        echo "GitHub release v$version already exists"
+        return
+    fi
+    gh release create "v$version" "$package-$version.mcpb" --title "v$version" --notes-file CHANGELOG.md
+}
+
+publish_registry() {
+    local status os arch
+    status=$(curl -s -o /dev/null -w '%{http_code}' \
+        "https://registry.modelcontextprotocol.io/v0.1/servers/${server/\//%2F}/versions/$version")
+    if [ "$status" = 200 ]; then
+        echo "the MCP registry already lists $server $version"
+        return
+    fi
+    os=$(uname -s | tr '[:upper:]' '[:lower:]')
+    arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+    curl -sSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${os}_${arch}.tar.gz" |
+        tar xz mcp-publisher
+    ./mcp-publisher login github-oidc
+    ./mcp-publisher publish
+}
+
+case "$step" in
+    npm) publish_npm ;;
+    github) publish_github ;;
+    registry) publish_registry ;;
+    *)
+        echo "$usage" >&2
+        exit 2
+        ;;
+esac
+```
+
+Run: `chmod +x scripts/publish-release.sh && shellcheck scripts/publish-release.sh scripts/build-bundle.sh && npx tsx scripts/check-release.ts 0.1.0; ./scripts/publish-release.sh bogus 0.1.0`
+Expected: shellcheck clean. `check-release.ts` exits 0 on Node 24 (npm 11.5.1 or later) and on Node 22 prints only the npm-version line, because Node 22 bundles npm 10. The bogus step prints the usage line and exits 2.
+
+- [ ] **Step 6: Write `.github/workflows/release.yml`**
+
+The order matters: everything that can fail (tests, version and npm checks, bundle build and validation) runs before `npm publish`, the only step that cannot be undone, and every publishing step is idempotent through `scripts/publish-release.sh`. The job runs Node 24 because trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10. `package-manager-cache: false` follows npm's trusted-publishing example, so a publishing job never restores a cache.
 
 ```yaml
 name: Release
@@ -4236,51 +4588,38 @@ jobs:
           package-manager-cache: false
       - run: npm ci
       - run: npm run format:check && npm run typecheck && npm run lint && npm test && npm run test:e2e
-      - name: Check that the tag matches package.json, server.json and manifest.json
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          for file in package.json server.json manifest.json; do
-            v=$(node -p "require('./$file').version")
-            [ "$v" = "$tag" ] || { echo "$file has $v, tag is $tag"; exit 1; }
-          done
-      - name: Require npm 11.5.1 or later for trusted publishing
-        run: |
-          version=$(npm --version)
-          node -e "const [major, minor, patch] = process.argv[1].split('.').map(Number); process.exit(major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1))) ? 0 : 1)" "$version" \
-            || { echo "npm $version is older than 11.5.1"; exit 1; }
+      - name: Check versions and the npm CLI
+        run: npx tsx scripts/check-release.ts "${GITHUB_REF_NAME#v}"
       - name: Build and validate the MCPB bundle
         run: ./scripts/build-bundle.sh
       - name: Publish to npm (trusted publishing, provenance automatic)
-        run: npm publish --access public
+        run: ./scripts/publish-release.sh npm "${GITHUB_REF_NAME#v}"
       - name: Create the GitHub release with the bundle
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" nbg-rates-mcp-*.mcpb --title "$GITHUB_REF_NAME" --notes-file CHANGELOG.md
+        run: ./scripts/publish-release.sh github "${GITHUB_REF_NAME#v}"
       - name: Publish to the MCP registry
-        run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
-          ./mcp-publisher login github-oidc
-          ./mcp-publisher publish
+        run: ./scripts/publish-release.sh registry "${GITHUB_REF_NAME#v}"
 ```
 
-- [ ] **Step 6: Run the full local verification and commit**
+- [ ] **Step 7: Run the full local verification and commit**
 
 Run: `npm run format:check && npm run lint && npm run typecheck && npm test && npm run test:e2e && npm pack --dry-run`
 Expected: all green; the pack listing contains only `dist/`, `README.md`, `LICENSE`, `CHANGELOG.md`, `package.json`.
 
 ```bash
-git add README.md CHANGELOG.md server.json manifest.json .mcpbignore scripts/build-bundle.sh .github/workflows/release.yml
-git commit -m "Add README, registry manifest, MCPB bundle and release workflow" -- README.md CHANGELOG.md server.json manifest.json .mcpbignore scripts/build-bundle.sh .github/workflows/release.yml
+git add README.md CHANGELOG.md server.json manifest.json .mcpbignore scripts/build-bundle.sh scripts/check-release.ts scripts/publish-release.sh .github/workflows/release.yml
+git commit -m "Add README, registry manifest, MCPB bundle and release workflow" -- README.md CHANGELOG.md server.json manifest.json .mcpbignore scripts/build-bundle.sh scripts/check-release.ts scripts/publish-release.sh .github/workflows/release.yml
 git log origin/main..HEAD --oneline
 git push origin main
 ```
 
-- [ ] **Step 7: First publish, by hand (trusted publishing cannot be configured before the package exists)**
+- [ ] **Step 8: First publish, by hand (trusted publishing cannot be configured before the package exists)**
 
 These steps are run by the maintainer, not by an agent, because they need an npm OTP and account settings:
 
 1. `npm login` if needed, then from a clean checkout on `main`: `npm publish --access public` (enter the OTP). Verify with `npm view nbg-rates-mcp version` printing `0.1.0`.
-2. On npmjs.com, open the package, Settings, Trusted Publisher: GitHub Actions, repository `akalongman/nbg-rates-mcp`, workflow `release.yml`. The configuration expires if no publish happens within two days.
+2. On npmjs.com, open the package, Settings, Trusted Publisher: GitHub Actions, repository `akalongman/nbg-rates-mcp`, workflow `release.yml`. Under "Allowed actions", also allow `npm publish`: configurations created after 2026-09-03 allow only `npm stage publish` by default, and the workflow publishes directly. The configuration expires if no publish happens within two days.
 3. Publish 0.1.0 to the registry once by hand so the namespace is claimed: download `mcp-publisher` with the curl line from `release.yml` (or `brew install mcp-publisher`), then `mcp-publisher login github` and `mcp-publisher publish`. Verify: `curl -s "https://registry.modelcontextprotocol.io/v0.1/servers?search=nbg" | head -c 400`.
 4. Smoke-test the published package in a client: `claude mcp add nbg-rates -- npx -y nbg-rates-mcp`, then ask for the USD rate on 2026-10-04 and confirm the answer gives the rate in force from 2026-10-03, and ask for the rate two days from now and confirm the answer says it is not published yet.
 5. Bump to `0.1.1` in `package.json`, `server.json`, `manifest.json` and `CHANGELOG.md`, commit, tag `v0.1.1`, push the tag within two days of step 2, and watch `release.yml` build the bundle, publish through trusted publishing, create the GitHub release, and publish to the registry. Download the `.mcpb` from the release and open it in Claude Desktop on macOS or Windows to confirm it installs and answers.
