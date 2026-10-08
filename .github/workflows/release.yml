@@ -13,12 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run format:check && npm run typecheck && npm run lint && npm test && npm run test:e2e
       - name: Check versions and the npm CLI
         run: npx tsx scripts/check-release.ts "${GITHUB_REF_NAME#v}"
