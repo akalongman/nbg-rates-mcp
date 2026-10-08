@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as fc from 'fast-check';
 import {
     MAX_HISTORY_DAYS,
@@ -36,12 +36,41 @@ describe('parseCalendarDate', () => {
         }
     });
 
+    it('reads the years 0000 to 0099 literally, by the proleptic Gregorian calendar', () => {
+        expect(parseCalendarDate('0050-06-01')).toEqual({ ok: true, value: '0050-06-01' });
+        expect(parseCalendarDate('0004-02-29')).toEqual({ ok: true, value: '0004-02-29' });
+        expect(parseCalendarDate('0001-02-29')).toEqual({
+            ok: false,
+            error: { kind: 'invalid_date', value: '0001-02-29', reason: 'not a real calendar date' },
+        });
+    });
+
     it('exports the archive start as a valid date', () => {
         expect(parseCalendarDate(NBG_ARCHIVE_START).ok).toBe(true);
     });
 });
 
 describe('calendarDateFromTimestamp', () => {
+    // West of UTC, T00:00:00.000Z falls on the previous local day, so a Date-based reading fails here.
+    let savedZone: string | undefined;
+
+    beforeAll(() => {
+        savedZone = process.env.TZ;
+        process.env.TZ = 'America/Los_Angeles';
+    });
+
+    afterAll(() => {
+        if (savedZone === undefined) {
+            delete process.env.TZ;
+        } else {
+            process.env.TZ = savedZone;
+        }
+    });
+
+    it('runs in Los Angeles, where midnight UTC is still the previous local day', () => {
+        expect(new Date('2026-10-08T00:00:00.000Z').getDate()).toBe(7);
+    });
+
     it('takes the first ten characters and ignores the process time zone', () => {
         expect(calendarDateFromTimestamp('2026-10-08T00:00:00.000Z')).toBe('2026-10-08');
         expect(calendarDateFromTimestamp('2026-10-07T17:01:12.447Z')).toBe('2026-10-07');
@@ -74,6 +103,11 @@ describe('addDays', () => {
         expect(addDays(date('2026-01-31'), 1)).toBe('2026-02-01');
         expect(addDays(date('2026-12-31'), 1)).toBe('2027-01-01');
         expect(addDays(date('2024-03-01'), -1)).toBe('2024-02-29');
+    });
+
+    it('steps below the years 0100 and 0001 without shifting into the 1900s', () => {
+        expect(addDays(date('0100-01-15'), -31)).toBe('0099-12-15');
+        expect(addDays(date('0001-01-01'), -1)).toBe('0000-12-31');
     });
 });
 

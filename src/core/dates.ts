@@ -8,8 +8,15 @@ export const NBG_ARCHIVE_START = '1995-10-14';
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAY_MILLIS = 86_400_000;
 
+/** Builds UTC midnight with setUTCFullYear, because Date.UTC maps the years 0 to 99 onto 1900 to 1999. */
+function utcMidnight(year: number, month: number, day: number): Date {
+    const instant = new Date(0);
+    instant.setUTCFullYear(year, month - 1, day);
+    return instant;
+}
+
 function isRealDate(year: number, month: number, day: number): boolean {
-    const candidate = new Date(Date.UTC(year, month - 1, day));
+    const candidate = utcMidnight(year, month, day);
     return (
         candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === day
     );
@@ -61,12 +68,21 @@ export function todayIn(timeZone: string, now: Date): CalendarDate {
 
 function toUtcMillis(date: CalendarDate): number {
     const [year, month, day] = date.split('-').map(Number);
-    return Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1);
+    return utcMidnight(year ?? 0, month ?? 1, day ?? 1).getTime();
 }
 
+/** Throws when the result falls outside the years 0000 to 9999, which a CalendarDate cannot hold. */
 export function addDays(date: CalendarDate, days: number): CalendarDate {
     const shifted = new Date(toUtcMillis(date) + days * DAY_MILLIS);
-    return calendarDateFromTimestamp(shifted.toISOString());
+    const year = String(shifted.getUTCFullYear()).padStart(4, '0');
+    const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(shifted.getUTCDate()).padStart(2, '0');
+    const formatted = `${year}-${month}-${day}`;
+    const parsed = parseCalendarDate(formatted);
+    if (!parsed.ok) {
+        throw new Error(`addDays(${date}, ${days}) left the years 0000 to 9999`);
+    }
+    return parsed.value;
 }
 
 export function enumerateDays(from: CalendarDate, to: CalendarDate): Result<ReadonlyArray<CalendarDate>, RatesError> {
