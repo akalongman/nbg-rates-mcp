@@ -1,3 +1,4 @@
+import { builtinModules } from 'node:module';
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
@@ -25,10 +26,18 @@ export default defineConfig(
             'no-restricted-imports': [
                 'error',
                 {
+                    paths: builtinModules.map((name) => ({
+                        name,
+                        message: 'core is pure: no shell, no Node built-ins',
+                    })),
                     patterns: [
                         { group: ['**/shell/**', 'node:*'], message: 'core is pure: no shell, no Node built-ins' },
                     ],
                 },
+            ],
+            'no-restricted-syntax': [
+                'error',
+                { selector: 'ImportExpression', message: 'core is pure: no dynamic imports' },
             ],
             'no-console': 'error',
         },
