@@ -40,5 +40,5 @@ export function csvExport(codes: ReadonlyArray<string>, start: string, end: stri
             return isoDate >= start && isoDate <= end;
         });
     });
-    return `\uFEFF${[CSV_HEADER, ...rows].join('\r\n')}\r\n`;
+    return `\uFEFF${[CSV_HEADER, ...rows].join('\n')}\n`;
 }
