@@ -178,6 +178,40 @@ describe('createServer', () => {
         await client.close();
     });
 
+    it('answers the valid codes and lists a currency name typed in place of its code in unknownCodes', async () => {
+        const { service, requests } = tableService();
+        const client = await connectedClient({ service });
+
+        const result = await client.callTool({
+            name: 'nbg_get_rates',
+            arguments: { date: '2026-10-07', currencies: ['USD', 'Armenian dram'] },
+        });
+
+        expect(result.isError).toBeFalsy();
+        const output = getRatesOutput.parse(result.structuredContent);
+        expect(output.rates.map((entry) => entry.code)).toEqual(['USD']);
+        expect(output.unknownCodes).toEqual(['Armenian dram']);
+        expect(requests).toEqual([{ date: '2026-10-07', language: 'en', codes: ['USD'] }]);
+        await client.close();
+    });
+
+    it('answers the valid codes and lists an empty entry in unknownCodes', async () => {
+        const { service, requests } = tableService();
+        const client = await connectedClient({ service });
+
+        const result = await client.callTool({
+            name: 'nbg_get_rates',
+            arguments: { date: '2026-10-07', currencies: ['USD', ''] },
+        });
+
+        expect(result.isError).toBeFalsy();
+        const output = getRatesOutput.parse(result.structuredContent);
+        expect(output.rates.map((entry) => entry.code)).toEqual(['USD']);
+        expect(output.unknownCodes).toEqual(['']);
+        expect(requests).toEqual([{ date: '2026-10-07', language: 'en', codes: ['USD'] }]);
+        await client.close();
+    });
+
     it('lists each unknown code once: absent from the table first, then malformed as first typed', async () => {
         const { service } = tableService();
         const client = await connectedClient({ service });

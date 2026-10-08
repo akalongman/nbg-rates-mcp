@@ -2,6 +2,9 @@ import * as z from 'zod';
 
 const calendarDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
 const currencyCode = z.string().min(1).max(10);
+// nbg_get_rates lists an entry that is not a three-letter code in unknownCodes as typed and answers
+// the rest, so an empty entry or a currency name typed in place of its code must not reject the call.
+const requestedCode = z.string().max(64);
 
 export const languageInput = z
     .enum(['en', 'ka'])
@@ -16,7 +19,7 @@ export const getRatesInput = z.object({
             "Calendar date YYYY-MM-DD. Defaults to today in Tbilisi. Tomorrow's rate exists after about 17:00 Tbilisi time.",
         ),
     currencies: z
-        .array(currencyCode)
+        .array(requestedCode)
         .min(1)
         .optional()
         .describe(

@@ -75,11 +75,11 @@ The official NBG rates in force on one calendar date. NBG quotes some currencies
 
 Inputs:
 
-| Name         | Required | Description                                                                                                                                                          |
-| ------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `date`       | no       | Calendar date. Defaults to today in Tbilisi. Tomorrow's rate exists after about 17:00 Tbilisi time.                                                                  |
-| `currencies` | no       | ISO 4217 codes to return, case-insensitive, duplicates ignored, for example `["USD", "EUR"]`. When given, the list holds at least one code. Omit for all currencies. |
-| `language`   | no       | Language of the currency names: `en` (default) or `ka` (Georgian). Codes, numbers and dates are the same in both.                                                    |
+| Name         | Required | Description                                                                                                                                                           |
+| ------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `date`       | no       | Calendar date. Defaults to today in Tbilisi. Tomorrow's rate exists after about 17:00 Tbilisi time.                                                                   |
+| `currencies` | no       | ISO 4217 codes to return, case-insensitive, duplicates ignored, for example `["USD", "EUR"]`. When given, the list holds at least one entry. Omit for all currencies. |
+| `language`   | no       | Language of the currency names: `en` (default) or `ka` (Georgian). Codes, numbers and dates are the same in both.                                                     |
 
 Output:
 
