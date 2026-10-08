@@ -1,0 +1,41 @@
+name: NBG contract
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - id: contract
+        run: npm run test:contract
+        continue-on-error: true
+      - name: Open or update the drift issue
+        if: steps.contract.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="NBG contract test failed"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          body="The weekly live test against nbg.gov.ge failed on $(date -u +%F). Run: $RUN_URL. Check whether an endpoint's shape or behaviour changed; refresh fixtures with npm run record-fixtures and compare."
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --label upstream --body "$body"
+          fi
+      - name: Fail the job if the contract failed
+        if: steps.contract.outcome == 'failure'
+        run: exit 1
