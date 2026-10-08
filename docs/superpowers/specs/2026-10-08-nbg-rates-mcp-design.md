@@ -7,7 +7,8 @@ Status: approved for planning
 
 `nbg-rates-mcp` is an open-source MCP (Model Context Protocol) server that
 gives AI agents the official exchange rates of the National Bank of Georgia
-(NBG) for the Georgian lari (GEL). It runs on the user's machine over stdio,
+(NBG) for the Georgian lari (GEL). It runs on the user's machine over stdio
+on Node 22 or later,
 calls the public NBG endpoint directly, and encodes the rules a raw call gets
 wrong: rates are quoted per 1, 10, 100, 1000 or 10000 units; a rate is set in
 the afternoon and valid from the next calendar day; a request for a weekend,
@@ -32,11 +33,11 @@ interpolation, or any value that is not a direct projection of NBG data.
 
 | Decision | Choice |
 |---|---|
-| Shape | stdio MCP server, TypeScript, Node 20 or later |
+| Shape | stdio MCP server, TypeScript, Node 22 or later (Node 20 is end of life) |
 | SDK | `@modelcontextprotocol/server` v2 (ESM only, Zod v4, Standard Schema) |
-| Tool surface | rich: four tools plus one resource template, Georgian names, daily diff |
+| Tool surface | rich: four `nbg_`-prefixed tools plus one resource template, Georgian names, daily diff |
 | Package name | `nbg-rates-mcp` on npm, unscoped |
-| Registry name | `io.github.akalongman/nbg-rates` in the official MCP registry |
+| Registry name | `io.github.akalongman/nbg-rates` in the official MCP registry (npm package only in 0.x) |
 | Distribution | `npx -y nbg-rates-mcp` as primary; an MCPB bundle on each GitHub release for Claude Desktop |
 | Architecture | functional core, imperative shell |
 | Repository | `~/projects/akalongman/nbg-rates-mcp`, GitHub `akalongman/nbg-rates-mcp`, MIT |
@@ -62,13 +63,22 @@ it from the website. Observed behaviour, which the contract test guards:
   `bad`) returns today's table. An unknown code returns an empty array.
   A date before the archive (observed: 1995) returns an empty array; 2000
   onwards has data.
-- Response time 100 to 350 ms. No cache headers. No authentication.
+- Response time 100 to 350 ms. No cache headers. No authentication. Rate
+  limits unknown.
+- There is no date-range endpoint. The website source references only this
+  per-day endpoint and an RSS feed, and range-style parameters are ignored.
 
 ## Tool contracts
 
-All tools carry the annotations `readOnlyHint`, `idempotentHint` and
-`openWorldHint` set to true and declare an `outputSchema`, so clients
-receive structured results.
+All tool names carry the `nbg_` prefix so they cannot be confused with the
+`convert` or `latest_rate` tools of generic exchange-rate servers installed
+in the same client. Each tool has a human-readable `title`, carries the
+annotations `readOnlyHint`, `idempotentHint` and `openWorldHint` set to
+true, and declares an `outputSchema`. Handlers return both
+`structuredContent` and a `content` text block holding the same JSON
+serialised once without indentation; the SDK does not add the text block
+itself. `language` affects only the `name` field; codes, numbers and dates
+are identical in `en` and `ka`.
 
 Common output fields:
 
@@ -103,7 +113,7 @@ Worked example. On Monday 2026-10-05 a user asks for the AMD rate on Sunday
 }
 ```
 
-### `get_rates`
+### `nbg_get_rates` (title: NBG rates for a date)
 
 Input: `date` (optional, ISO calendar date, default today in Tbilisi),
 `currencies` (optional, array of ISO 4217 codes, case-insensitive, default
@@ -117,7 +127,11 @@ publishes it, so a user can recognise the number on the NBG website.
 are not an error here: a request for five codes with one typo still answers
 the other four.
 
-### `convert`
+The description states that tomorrow's rate is published around 17:00
+Tbilisi time and can be requested by date, so a model asked in the evening
+knows the next day's rate is available.
+
+### `nbg_convert` (title: Convert via NBG rate)
 
 Input: `amount` (number), `from` and `to` (ISO codes, either may be `GEL`),
 `date` (optional).
@@ -129,7 +143,10 @@ otherwise), `effectiveDate`, `isFallback`, `requestedDate`.
 Numbers are unrounded. The tool description instructs the model to round for
 display and to quote the effective date whenever `isFallback` is true.
 
-### `list_currencies`
+When `from` equals `to`, or both are GEL, `rate` is 1, `result` equals
+`amount` and `via` is `direct`; with both GEL no upstream call is made.
+
+### `nbg_list_currencies` (title: NBG currency list)
 
 Input: `language` (optional).
 
@@ -137,7 +154,7 @@ Output: `effectiveDate` and `currencies`, an array of `{ code, name,
 nbgQuantity }` for every currency in today's table. The list is never
 hard-coded; it is the table NBG returned.
 
-### `get_rate_history`
+### `nbg_rate_history` (title: NBG rate history)
 
 Input: `currency`, `from`, `to` (inclusive ISO calendar dates), `language`
 (optional).
@@ -153,7 +170,9 @@ is capped at 366 days per call.
 `date` is an ISO calendar date or the literal `today`. Returns the
 `get_rates` payload for that date with no currency filter, as JSON. Intended
 for clients that let users attach resources to context instead of calling
-tools.
+tools. The template registers a `list` callback that returns the single
+`nbg://rates/today` entry, so the resource is visible in client resource
+lists rather than only resolvable when typed.
 
 ## Core (`src/core/`)
 
@@ -175,6 +194,9 @@ it.
   `validFromDate`, sets `isFallback`, takes `publishedAt` from the
   per-currency timestamp, collects `unknownCodes`.
 - `dates.ts`: `todayIn(timeZone, now)`, strict calendar-date parsing,
+  extraction of the calendar date from an NBG timestamp (the first ten
+  characters, never through a `Date` object, so a process in another time
+  zone cannot shift the day),
   `enumerateDays(from, to)`, the 366-day range check. `Asia/Tbilisi` is a
   constant here.
 - `convert.ts`: cross-rate arithmetic on a snapshot. GEL has rate 1;
@@ -193,15 +215,18 @@ float arithmetic and documented as unrounded.
 - `nbg-client.ts`: fetches the full table for one date and language. It
   never passes a `currencies` filter upstream; filtering happens in core, so
   one cache entry per date serves every later question about that date.
-  Ten-second timeout through `AbortSignal`, one retry on network error or
-  5xx, a `User-Agent` naming the package and version. Returns a `Result`
+  Ten-second timeout through `AbortSignal`, one retry after a 500 ms pause
+  on network error, 429 or 5xx, a `User-Agent` naming the package and
+  version. Returns a `Result`
   with the parsed NBG day or `upstream_unavailable` /
   `upstream_shape_changed`.
-- `cache.ts`: in-memory map keyed by language and date. A snapshot with
-  `isFallback` false is final and kept for the life of the process. A
-  snapshot with `isFallback` true is provisional (tomorrow's rate appears at
-  about 17:00 Tbilisi) and kept for ten minutes. Capped at 2000 entries,
-  oldest evicted first.
+- `cache.ts`: in-memory map keyed by language and requested date. A
+  snapshot whose requested date is before today in Tbilisi is final whatever
+  its flag, because the past does not change; this keeps past weekends in a
+  history range from being refetched. For today and later dates a snapshot
+  is final when `isFallback` is false and provisional for ten minutes when
+  it is true (tomorrow's rate appears at about 17:00 Tbilisi). Capped at
+  2000 entries, oldest evicted first.
 - `history-fetcher.ts`: enumerates days through core, fetches each through
   client and cache with a concurrency cap of 6 (hand-rolled, no dependency),
   hands the snapshots to core.
@@ -211,9 +236,10 @@ float arithmetic and documented as unrounded.
   server. Tool descriptions state the Tbilisi calendar-day rule, that rates
   are per one unit, and that `effectiveDate` must be quoted when
   `isFallback` is true. Logs go to stderr only.
-- `bin.ts`: executable entry with shebang, `--version`, `--help`. Reads one
-  environment variable, `NBG_RATES_BASE_URL`, which overrides the NBG host
-  for tests.
+- `bin.ts`: executable entry with shebang, `--version`, `--help`. Reads two
+  environment variables: `NBG_RATES_BASE_URL` overrides the NBG host for
+  tests; `NBG_RATES_DEBUG=1` logs every upstream request with status and
+  timing to stderr, which the issue template asks reporters to attach.
 
 Latency: a 90-day history fetches 90 tables at six in flight, about three to
 six seconds on first call and zero fetches on a repeat. A 366-day range takes
@@ -266,8 +292,10 @@ Vitest, tests co-located as `*.test.ts`.
 - Core: `normalize` on recorded fixtures (recent row, 2005 row without
   `validFromDate`, empty array, row with an extra field); decimal division
   for every quantity power; `dates` at 23:30 UTC (already tomorrow in
-  Tbilisi), 29 February, the 366-day cap, `2026-02-30`; `convert` with GEL on
-  each side and a cross pair; `history` ordering and flags across a weekend.
+  Tbilisi), 29 February, the 366-day cap, `2026-02-30`, and NBG timestamp
+  extraction under `TZ=America/Los_Angeles`; `convert` with GEL on each
+  side, a cross pair, and identical codes; `history` ordering and flags
+  across a weekend.
 - Property tests with fast-check: converting A to B and back returns the
   amount within float tolerance; enumerating any valid range yields
   `to - from + 1` days in order without duplicates.
@@ -283,7 +311,9 @@ Vitest, tests co-located as `*.test.ts`.
 - Live contract test `test/contract/nbg-live.test.ts`, skipped unless
   `NBG_LIVE=1`: fetches today, a known Sunday, a 2005 date and a 1995 date;
   asserts the schema parses, USD is present, every quantity is a power of
-  ten, and the fallback flag behaves. No exact rate values.
+  ten, and the fallback flag behaves. It also fetches a 366-day range at
+  concurrency 6 and records whether any 429 was seen, so the unknown rate
+  limit becomes a measured fact. No exact rate values.
 
 Not tested: exact rate values, NBG uptime, tool description prose.
 
@@ -293,14 +323,25 @@ GitHub Actions, three workflows:
 
 1. `ci.yml` on push and pull request: ESLint (`no-explicit-any` as error,
    core-to-shell import ban), typecheck, unit and end-to-end tests, on Node
-   20, 22 and 24.
+   22 and 24.
 2. `contract.yml` weekly and on manual dispatch: runs the live contract
    test. On failure it opens an issue, or comments on the open one. This is
    the upstream-drift alarm.
-3. `release.yml` on a version tag: build, test, `npm publish` with
-   provenance through npm trusted publishing (no token in the repository),
-   `mcp-publisher publish` through its GitHub OIDC login, and an MCPB bundle
-   (`mcpb pack`) attached to the GitHub release.
+3. `release.yml` on a version tag: build, test, `npm publish` through npm
+   trusted publishing (workflow permission `id-token: write`, provenance
+   generated automatically, no token in the repository), `mcp-publisher
+   publish` through its GitHub OIDC login, and an MCPB bundle (`mcpb pack`)
+   attached to the GitHub release.
+
+Dependabot (`.github/dependabot.yml`) checks npm and GitHub Actions weekly
+with minor and patch updates grouped.
+
+First publish: trusted publishing can only be configured on a package that
+already exists, and a new configuration must complete a publish within two
+days. So 0.1.0 is published manually from the maintainer's machine with an
+OTP, the trusted publisher is then configured on npmjs.com, and the next tag
+proves the workflow. `repository.url` in `package.json` must match the
+GitHub URL exactly or provenance fails.
 
 Versioning: first publish 0.1.0; 1.0.0 once the weekly contract test has run
 clean for a month.
@@ -310,11 +351,18 @@ clean for a month.
 - Primary: `npx -y nbg-rates-mcp`, for Claude Code, Cursor and any client
   configured by command line. Install line for Claude Code:
   `claude mcp add nbg-rates -- npx -y nbg-rates-mcp`.
-- Claude Desktop: the MCPB bundle from the GitHub release, installed by
-  double-click. Claude Desktop ships its own Node runtime, so the user needs
-  nothing else. The manifest schema has changed several times (0.2 to 0.4
-  within a year); the implementing task must read the current specification
-  at `github.com/anthropics/mcpb` rather than a tutorial.
+- Claude Desktop on macOS and Windows: the MCPB bundle from the GitHub
+  release, installed by double-click. Claude Desktop ships its own Node
+  runtime, so the user needs nothing else. The manifest schema has changed
+  several times (0.2 to 0.4 within a year); the implementing task must read
+  the current specification at `github.com/anthropics/mcpb` rather than a
+  tutorial. The bundle is linked from the README; it is not listed in
+  `server.json` during 0.x, because the registry entry would need the
+  bundle's SHA-256 and version written at release time, and that is not
+  worth automating before the bundle has users.
+- Claude Desktop elsewhere, and anyone who prefers a config file: the
+  README shows the manual `claude_desktop_config.json` snippet with the
+  `npx` command next to the bundle instructions.
 - Rejected: global `npm install -g` (users stop updating), single executable
   binaries (three-platform build matrix and macOS notarisation for a problem
   the bundle already solves), Docker (wrong shape for a desktop tool), a
@@ -323,8 +371,8 @@ clean for a month.
 ## Repository layout
 
 ```
-package.json              type module, bin, files, engines node>=20, mcpName
-server.json               registry manifest, name io.github.akalongman/nbg-rates
+package.json              type module, bin, files, engines node>=22, mcpName
+server.json               registry manifest, name io.github.akalongman/nbg-rates, npm package only
 manifest.json             MCPB manifest
 tsconfig.json             strict settings, ESM output to dist/
 eslint.config.js          typescript-eslint, no-explicit-any, core-to-shell ban
@@ -338,6 +386,8 @@ test/contract/            live test, opt-in
 scripts/record-fixtures.ts
 docs/superpowers/specs/   this design
 .github/workflows/        ci.yml, contract.yml, release.yml
+.github/dependabot.yml    weekly npm and actions updates
+.github/ISSUE_TEMPLATE/   bug report asking for NBG_RATES_DEBUG output
 README.md, LICENSE, CHANGELOG.md
 ```
 
