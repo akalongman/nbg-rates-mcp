@@ -39,10 +39,18 @@ describe('apply-repo-settings.sh', () => {
             topics: string[];
         };
 
-        const result = spawnSync('bash', [SCRIPT], {
-            encoding: 'utf8',
-            env: { ...process.env, PATH: `${stubDir}:${process.env['PATH'] ?? ''}`, STUB_LOG: log },
-        });
+        // A noexec temp dir would skip the stub: the check stops the run, the dummy token makes a real gh answer 401.
+        const env = {
+            ...process.env,
+            PATH: `${stubDir}:${process.env['PATH'] ?? ''}`,
+            STUB_LOG: log,
+            GH_TOKEN: 'stub-not-a-real-token',
+        };
+        expect(spawnSync('bash', ['-c', 'command -v gh'], { encoding: 'utf8', env }).stdout.trim()).toBe(
+            join(stubDir, 'gh'),
+        );
+
+        const result = spawnSync('bash', [SCRIPT], { encoding: 'utf8', env });
 
         expect(result.status).toBe(0);
         expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
