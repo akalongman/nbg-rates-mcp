@@ -251,6 +251,8 @@ Before a pull request, also run `npm run format:check`, `npm run lint` and `npm 
 
 The code is split into `src/core`, pure functions with no I/O (date rules, parsing, per-unit normalisation, conversion, history), and `src/shell`, which holds the effects (the NBG HTTP client, the cache, the rates service and the MCP server). `src/bin.ts` is the executable.
 
+The repository's rulesets (protection of `main`, and release tags that only admins may create) are defined in `.github/rulesets/`; a maintainer applies a change with `scripts/apply-rulesets.sh`.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
