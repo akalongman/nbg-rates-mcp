@@ -94,7 +94,14 @@ describe('describeError', () => {
                 /2026-02-30.*YYYY-MM-DD/,
             ],
             [{ kind: 'range_too_long', days: 400, max: 366 }, /400.*366/],
-            [{ kind: 'unknown_currency', code: 'XXX' }, /XXX.*nbg_list_currencies/],
+            [
+                { kind: 'unknown_currency', code: 'XXX' },
+                /XXX on the requested date or range.*nbg_list_currencies.*other dates/,
+            ],
+            [
+                { kind: 'result_out_of_range', amount: 1e308, from: code('USD'), to: code('AMD') },
+                /1e\+308 USD to AMD.*smaller amount/,
+            ],
             [{ kind: 'no_data_for_date', date: date('1995-06-01'), currency: undefined }, /1995-06-01.*1995-10-14/],
             [
                 { kind: 'no_data_for_date', date: date('2005-03-15'), currency: code('AZN') },
@@ -410,6 +417,18 @@ describe('createServer', () => {
 
         expect(result.isError).toBe(true);
         expect(result.structuredContent).toBeUndefined();
+        // The project's own message, not the SDK's output validator rejecting Infinity.
+        expect(result.content).toEqual([
+            {
+                type: 'text',
+                text: describeError({
+                    kind: 'result_out_of_range',
+                    amount: 1e308,
+                    from: code('USD'),
+                    to: code('AMD'),
+                }),
+            },
+        ]);
         await client.close();
     });
 

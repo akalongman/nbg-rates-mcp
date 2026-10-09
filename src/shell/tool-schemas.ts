@@ -23,7 +23,8 @@ export const getRatesInput = z.object({
         .min(1)
         .optional()
         .describe(
-            'ISO 4217 codes to return, case-insensitive, duplicates ignored (for example ["USD", "EUR"]). Omit for all currencies.',
+            'ISO 4217 codes to return, case-insensitive, duplicates ignored (for example ["USD", "EUR"]). Omit for all currencies. ' +
+                'GEL has no row, since every rate is in GEL, so it is listed in unknownCodes.',
         ),
     language: languageInput.optional(),
 });
@@ -58,7 +59,11 @@ const rateEntry = z.object({
     code: z.string(),
     name: z.string(),
     rate: z.number().describe('GEL per ONE unit of the currency'),
-    diff: z.number().describe('Change versus the previous published rate, per one unit'),
+    diff: z
+        .number()
+        .describe(
+            'Change versus the previous published rate, per one unit; values below 0.000001 use exponent notation, such as 4e-7',
+        ),
     nbgQuantity: z.number().describe('Units NBG quotes the raw rate for (1, 10, 100, 1000 or 10000)'),
     nbgRate: z.number().describe('Raw rate as published by NBG, for nbgQuantity units'),
 });

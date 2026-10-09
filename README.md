@@ -86,8 +86,8 @@ Output:
 - `requestedDate`: the date asked for, or today in Tbilisi when `date` is omitted.
 - `effectiveDate`: the date the returned rates took effect, as NBG publishes it.
 - `carriedOver`: `true` when the rates in force on `requestedDate` took effect on an earlier day. They are still the official rates for `requestedDate`; quote `effectiveDate` alongside them.
-- `rates`: one entry per currency with `code`, `name`, `rate` (GEL per one unit), `diff` (change versus the previous published rate, per one unit), `nbgQuantity` (the units NBG quotes the raw rate for: 1, 10, 100, 1000 or 10000) and `nbgRate` (the raw rate as NBG publishes it, for `nbgQuantity` units).
-- `unknownCodes`: requested codes NBG did not quote on that date, and inputs that are not a three-letter currency code at all. The other requested codes are still answered.
+- `rates`: one entry per currency with `code`, `name`, `rate` (GEL per one unit), `diff` (change versus the previous published rate, per one unit), `nbgQuantity` (the units NBG quotes the raw rate for: 1, 10, 100, 1000 or 10000) and `nbgRate` (the raw rate as NBG publishes it, for `nbgQuantity` units). Values below 0.000001, mostly the `diff` of a currency quoted per 1000 or 10000 units, are JSON numbers in exponent notation, for example `4e-7`.
+- `unknownCodes`: requested codes NBG did not quote on that date, and inputs that are not a three-letter currency code at all. The other requested codes are still answered. `GEL` is listed here too: every rate is in GEL, so the table has no row for it.
 
 Worked example: on Monday 2026-10-05 a user asks for the AMD rate on Sunday 2026-10-04. NBG sets no rate for a Sunday, so the rate in force is the one valid from Saturday 2026-10-03, which NBG quotes as 7.1762 GEL per 1000 drams. The request
 
@@ -202,7 +202,8 @@ A tool that cannot answer returns an error result whose text says what went wron
 
 - the date is not a real calendar date in the form `YYYY-MM-DD`, or a history range ends before it starts;
 - a history range is longer than 366 days;
-- the currency is not a three-letter code, or NBG did not quote it on the requested date (`nbg_get_rates` lists such codes in `unknownCodes` instead);
+- the currency is not a three-letter code, or NBG did not quote it on the requested date or range (`nbg_get_rates` lists such codes in `unknownCodes` instead); NBG has added and dropped currencies over the years, so the code may still have rates on other dates;
+- a conversion result is too large to represent as a number;
 - NBG has no rate in force on the date (the archive starts on 1995-10-14, and a currency has no rate before NBG first quoted it, after NBG stopped quoting it, or where NBG's records have a gap);
 - NBG has not published a rate for the date yet; when the latest published rate is known, the message says from which date it is valid;
 - NBG did not respond usably; the request can be retried;
@@ -216,6 +217,7 @@ Reading the resource fails with the same messages.
 - "Today" means the calendar date in Tbilisi, wherever the client runs.
 - Sundays, Mondays and days after a public holiday have no rate of their own: they carry the earlier rate with `carriedOver: true` and `effectiveDate` set to the day it took effect. Before September 2021 NBG stored a rate for every calendar day, so older Sundays are not carried over.
 - A date whose rate NBG has not published yet (tomorrow before about 17:00 Tbilisi time, or any later date) returns an error, never a guess.
+- NBG occasionally publishes a table for a day after that day: on Monday 2026-09-28 at 17:01 it published the table valid from Saturday 2026-09-26, which replaced Friday's rate for 2026-09-26 to 2026-09-28. A carried-over answer for the last seven days can therefore change; the server asks NBG again after ten minutes for those, and after twelve hours for every other answer.
 - The archive starts on 1995-10-14 with USD; other currencies start later.
 
 ## Environment variables

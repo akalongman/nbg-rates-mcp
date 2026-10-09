@@ -1,5 +1,8 @@
-import { TBILISI_TIME_ZONE, todayIn } from '../core/dates.js';
+import { TBILISI_TIME_ZONE, addDays, todayIn } from '../core/dates.js';
 import type { CalendarDate, Language, RatesSnapshot } from '../core/types.js';
+
+/** How many days back NBG may still publish a table valid from a past day. */
+const LATE_PUBLICATION_DAYS = 7;
 
 export interface SnapshotCache {
     get(language: Language, requestedDate: CalendarDate, now: Date): RatesSnapshot | undefined;
@@ -33,11 +36,16 @@ export function createSnapshotCache(
         return now.getTime() > entry.expiresAt;
     }
 
+    /**
+     * A carried-over answer is provisional while NBG can still publish a table for that day: on Monday 2026-09-28 at
+     * 17:01 it published the table valid from Saturday 2026-09-26, replacing Friday's rate for 09-26 to 09-28. The
+     * longest such delay in the archive is three days, so a week covers it.
+     */
     function isFinal(requestedDate: CalendarDate, snapshot: RatesSnapshot, now: Date): boolean {
-        if (requestedDate < todayIn(timeZone, now)) {
+        if (!snapshot.carriedOver) {
             return true;
         }
-        return !snapshot.carriedOver;
+        return requestedDate < addDays(todayIn(timeZone, now), -LATE_PUBLICATION_DAYS);
     }
 
     return {

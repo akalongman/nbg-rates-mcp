@@ -37,11 +37,15 @@ export function convertAmount(
     const identical = from === to;
     const rate = identical ? 1 : fromRate.value / toRate.value;
     const via: Conversion['via'] = identical || from === GEL || to === GEL ? 'direct' : 'GEL';
+    const result = identical ? amount : amount * rate;
+    if (!Number.isFinite(result)) {
+        return err({ kind: 'result_out_of_range', amount, from, to });
+    }
     return ok({
         amount,
         from,
         to,
-        result: identical ? amount : amount * rate,
+        result,
         rate,
         via,
         requestedDate: snapshot.requestedDate,

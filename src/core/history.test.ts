@@ -64,6 +64,19 @@ const CHANGEOVER_2021 = [
     'USD,1,3.1183,0.0035,აშშ დოლარი,9/2/2021,9/3/2021',
 ].join('\n');
 
+/**
+ * NBG published no table for Saturday 2026-09-26 on Friday; on Monday 2026-09-28 at 17:01 it published one valid
+ * from that Saturday, after the day itself. Copied from test/fixtures/csv-USD.csv.
+ */
+const LATE_SATURDAY_2026 = [
+    NBG_CSV_HEADER,
+    'USD,1,2.6051,0.0004,აშშ დოლარი,9/29/2026,9/30/2026',
+    'USD,1,2.6055,0.0025,აშშ დოლარი,9/28/2026,9/29/2026',
+    'USD,1,2.6080,0.0138,აშშ დოლარი,9/28/2026,9/26/2026',
+    'USD,1,2.6218,0.0011,აშშ დოლარი,9/24/2026,9/25/2026',
+    'USD,1,2.6229,0.0125,აშშ დოლარი,9/23/2026,9/24/2026',
+].join('\n');
+
 function rows(text: string): ReadonlyArray<NbgCsvRow> {
     const parsed = parseNbgCsv(text);
     if (!parsed.ok) {
@@ -121,6 +134,19 @@ describe('assembleHistory', () => {
             { date: '2026-01-04', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: true },
             { date: '2026-01-05', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: true },
             { date: '2026-01-06', effectiveDate: '2026-01-06', rate: 2.6968, carriedOver: false },
+        ]);
+    });
+
+    it('uses a table NBG published after the day it is valid from', () => {
+        const result = assembleHistory(code('USD'), days('2026-09-24', '2026-09-30'), rows(LATE_SATURDAY_2026), TODAY);
+        expect(result.ok && result.value.days).toEqual([
+            { date: '2026-09-24', effectiveDate: '2026-09-24', rate: 2.6229, carriedOver: false },
+            { date: '2026-09-25', effectiveDate: '2026-09-25', rate: 2.6218, carriedOver: false },
+            { date: '2026-09-26', effectiveDate: '2026-09-26', rate: 2.608, carriedOver: false },
+            { date: '2026-09-27', effectiveDate: '2026-09-26', rate: 2.608, carriedOver: true },
+            { date: '2026-09-28', effectiveDate: '2026-09-26', rate: 2.608, carriedOver: true },
+            { date: '2026-09-29', effectiveDate: '2026-09-29', rate: 2.6055, carriedOver: false },
+            { date: '2026-09-30', effectiveDate: '2026-09-30', rate: 2.6051, carriedOver: false },
         ]);
     });
 

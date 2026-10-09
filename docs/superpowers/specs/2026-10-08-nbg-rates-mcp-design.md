@@ -162,7 +162,9 @@ Common output fields:
 A requested date is settled when it is today in Tbilisi or earlier, or when
 NBG has already published a rate valid from it. Every answer built from NBG
 data is for a settled date; an unsettled date fails with
-`rate_not_published`. A date later than tomorrow is rejected without calling
+`rate_not_published`. Settled is not final: a carried-over answer can still
+change when NBG publishes a table for a past day after it (see `cache.ts`
+below). A date later than tomorrow is rejected without calling
 NBG, because no rate for it can exist yet. A table valid from a day after
 the requested date can only mean NBG ignored the date parameter (as it does
 for an invalid date), so it is `upstream_shape_changed`, never a rate. GEL to
@@ -353,10 +355,13 @@ float arithmetic and documented as unrounded.
   retried; a parsed body that fails the schema or the CSV header check is
   `upstream_shape_changed`.
 - `cache.ts`: in-memory snapshot map keyed by language and requested date. A
-  snapshot whose requested date is before today in Tbilisi is final whatever
-  its flag. For today and later dates a snapshot is final when `carriedOver`
-  is false and provisional for ten minutes when it is true (a late
-  publication for today is possible). A final entry is kept for twelve
+  snapshot is final when `carriedOver` is false, or when it is carried over
+  for a date more than seven days before today in Tbilisi. Any other
+  carried-over snapshot is provisional for ten minutes, because NBG can
+  still publish a table valid from that day: a late publication for today,
+  or a table for a past day published after it (since 0.2.2; the table
+  valid from Saturday 2026-09-26 appeared on Monday 2026-09-28 at 17:01,
+  and the longest such delay in the archive is three days). A final entry is kept for twelve
   hours, not forever: nothing shows that NBG never corrects a published
   rate, and a client left running for days would otherwise serve a
   superseded value until restart. A
@@ -413,9 +418,14 @@ Error union:
    value.
 2. `range_too_long`: more than 366 days. States the cap.
 3. `unknown_currency`: from `convert` and `nbg_rate_history` only. Says NBG
-   did not quote the code for the requested date and that
-   `nbg_list_currencies` lists today's codes, since the list has changed
-   over the years.
+   did not quote the code on the requested date or range, that
+   `nbg_list_currencies` lists today's codes, and that the code may have
+   rates on other dates, since NBG has added and dropped currencies over the
+   years. For history the range includes the 31-day lookback, so a currency
+   whose last row falls inside it fails with `no_data_for_date` instead.
+8. `result_out_of_range`: from `convert` only, when the unrounded result is
+   not a finite number (for example 1e308 USD to AMD). Names the amount and
+   the pair and asks for a smaller amount (since 0.2.2).
 4. `no_data_for_date`: no rate in force on a date (before the archive,
    before a currency was first quoted, after it was last quoted, or a day
    whose publication NBG's filter does not return for it). Names the date,

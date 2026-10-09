@@ -39,7 +39,9 @@ export function describeError(error: RatesError): string {
         case 'range_too_long':
             return `The range covers ${error.days} days; the maximum is ${error.max}. Split it into shorter ranges.`;
         case 'unknown_currency':
-            return `NBG did not quote ${error.code} for the requested date. Call nbg_list_currencies for today's codes; the list has changed over the years.`;
+            return `NBG did not quote ${error.code} on the requested date or range. Call nbg_list_currencies for today's codes; NBG has added and dropped currencies over the years, so the code may have rates on other dates.`;
+        case 'result_out_of_range':
+            return `Converting ${error.amount} ${error.from} to ${error.to} gives a result too large to represent as a number; convert a smaller amount.`;
         case 'no_data_for_date': {
             const subject = error.currency === undefined ? 'rates' : `${error.currency} rate`;
             return `NBG has no ${subject} in force on ${error.date}. The archive starts on ${NBG_ARCHIVE_START}, and a currency has no rate before NBG first quoted it, after NBG stopped quoting it, or on a day where NBG's records have a gap.`;

@@ -16,6 +16,12 @@ export type RatesError =
     | { readonly kind: 'invalid_date'; readonly value: string; readonly reason: string }
     | { readonly kind: 'range_too_long'; readonly days: number; readonly max: number }
     | { readonly kind: 'unknown_currency'; readonly code: string }
+    | {
+          readonly kind: 'result_out_of_range';
+          readonly amount: number;
+          readonly from: CurrencyCode;
+          readonly to: CurrencyCode;
+      }
     | { readonly kind: 'no_data_for_date'; readonly date: CalendarDate; readonly currency: CurrencyCode | undefined }
     | {
           readonly kind: 'rate_not_published';

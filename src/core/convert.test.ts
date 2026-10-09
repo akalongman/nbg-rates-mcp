@@ -73,6 +73,16 @@ describe('convertAmount', () => {
         expect(missingTo).toEqual({ ok: false, error: { kind: 'unknown_currency', code: 'ZZZ' } });
     });
 
+    it('fails with result_out_of_range when the result does not fit in a double, either sign', () => {
+        // 1e308 USD is about 3.6e310 AMD, beyond the largest double, so the product is Infinity.
+        for (const amount of [1e308, -1e308]) {
+            expect(convertAmount(snapshot, amount, code('USD'), code('AMD'))).toEqual({
+                ok: false,
+                error: { kind: 'result_out_of_range', amount, from: 'USD', to: 'AMD' },
+            });
+        }
+    });
+
     it('property: converting there and back returns the amount within float tolerance', () => {
         const codes = [GEL, code('USD'), code('EUR'), code('AMD')];
         fc.assert(
