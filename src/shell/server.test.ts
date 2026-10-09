@@ -15,6 +15,7 @@ import {
     type RatesError,
     type RatesSnapshot,
 } from '../core/types.js';
+import { PROMPTS, renderPrompt } from './prompts.js';
 import type { RatesService } from './rates-service.js';
 import { createServer, describeError } from './server.js';
 import { getRatesOutput } from './tool-schemas.js';
@@ -459,6 +460,70 @@ describe('createServer', () => {
             '2026-10-08',
             '2026-10-08',
         ]);
+        await client.close();
+    });
+});
+
+describe('prompts', () => {
+    it('lists the four prompts with their titles, descriptions and arguments', async () => {
+        const client = await connectedClient();
+        const { prompts } = await client.listPrompts();
+
+        expect(
+            prompts.map(({ name, title, description, arguments: args }) => ({
+                name,
+                title,
+                description,
+                arguments: args,
+            })),
+        ).toEqual(
+            PROMPTS.map((prompt) => ({
+                name: prompt.name,
+                title: prompt.title,
+                description: prompt.description,
+                arguments: prompt.arguments.map(({ name, description, required }) => ({ name, description, required })),
+            })),
+        );
+
+        await client.close();
+    });
+
+    it('renders a prompt as one user message with the arguments inserted', async () => {
+        const client = await connectedClient();
+        const args = { amount: '1500', from: 'USD', to: 'GEL' };
+        const convert = PROMPTS.find((prompt) => prompt.name === 'nbg_convert_amount');
+        if (convert === undefined) {
+            throw new Error('nbg_convert_amount missing');
+        }
+
+        const result = await client.getPrompt({ name: 'nbg_convert_amount', arguments: args });
+
+        expect(result.messages).toEqual([
+            { role: 'user', content: { type: 'text', text: renderPrompt(convert.text, args) } },
+        ]);
+        const text = result.messages[0]?.content.type === 'text' ? result.messages[0].content.text : '';
+        expect(text).toContain('Convert 1500 USD to GEL');
+        expect(text).toContain('in force on  (today when no date is given)');
+
+        await client.close();
+    });
+
+    it('renders an omitted and an empty optional argument the same way', async () => {
+        const client = await connectedClient();
+
+        const omitted = await client.getPrompt({ name: 'nbg_rates_today', arguments: {} });
+        const empty = await client.getPrompt({ name: 'nbg_rates_today', arguments: { currencies: '' } });
+
+        expect(empty.messages).toEqual(omitted.messages);
+
+        await client.close();
+    });
+
+    it('rejects a prompt call that lacks a required argument', async () => {
+        const client = await connectedClient();
+
+        await expect(client.getPrompt({ name: 'nbg_rate_on_date', arguments: { currency: 'USD' } })).rejects.toThrow();
+
         await client.close();
     });
 });

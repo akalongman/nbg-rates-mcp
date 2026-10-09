@@ -61,6 +61,16 @@ describe('nbg-rates-mcp over stdio', () => {
         ]);
     });
 
+    it('lists the prompts', async () => {
+        const { prompts } = await client.listPrompts();
+        expect(prompts.map((prompt) => prompt.name).sort()).toEqual([
+            'nbg_convert_amount',
+            'nbg_monthly_rates',
+            'nbg_rate_on_date',
+            'nbg_rates_today',
+        ]);
+    });
+
     it('sends the instructions and the display identity', () => {
         expect(client.getInstructions()).toBe(SERVER_INSTRUCTIONS);
         expect(client.getServerVersion()).toMatchObject({

@@ -11,6 +11,7 @@ import {
     type Result,
 } from '../core/types.js';
 import { historyOutput } from './history-output.js';
+import { PROMPTS, promptArgsSchema, renderPrompt } from './prompts.js';
 import type { RatesService } from './rates-service.js';
 import {
     convertInput,
@@ -291,6 +292,16 @@ export function createServer(deps: ServerDeps): McpServer {
             return success(historyOutput(history.value));
         },
     );
+
+    for (const prompt of PROMPTS) {
+        server.registerPrompt(
+            prompt.name,
+            { title: prompt.title, description: prompt.description, argsSchema: promptArgsSchema(prompt) },
+            (args) => ({
+                messages: [{ role: 'user', content: { type: 'text', text: renderPrompt(prompt.text, args) } }],
+            }),
+        );
+    }
 
     server.registerResource(
         'nbg-rates',
