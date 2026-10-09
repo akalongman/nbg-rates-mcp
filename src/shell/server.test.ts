@@ -464,6 +464,14 @@ describe('createServer', () => {
     });
 });
 
+/** Every required argument of each prompt, optional ones omitted; no value appears in its prompt's text already. */
+const REQUIRED_PROMPT_ARGUMENTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+    nbg_rates_today: {},
+    nbg_rate_on_date: { currency: 'CHF', date: '2026-10-03' },
+    nbg_convert_amount: { amount: '1500.75', from: 'EUR', to: 'TRY' },
+    nbg_monthly_rates: { currency: 'AMD', month: '2026-09' },
+};
+
 describe('prompts', () => {
     it('lists the four prompts with their titles, descriptions and arguments', async () => {
         const client = await connectedClient();
@@ -504,6 +512,29 @@ describe('prompts', () => {
         const text = result.messages[0]?.content.type === 'text' ? result.messages[0].content.text : '';
         expect(text).toContain('Convert 1500 USD to GEL');
         expect(text).toContain('in force on  (today when no date is given)');
+
+        await client.close();
+    });
+
+    it.each(PROMPTS)('renders $name as one user message with its required arguments inserted', async (prompt) => {
+        const args = REQUIRED_PROMPT_ARGUMENTS[prompt.name];
+        if (args === undefined) {
+            throw new Error(`no arguments listed for ${prompt.name}`);
+        }
+        const client = await connectedClient();
+
+        const result = await client.getPrompt({ name: prompt.name, arguments: args });
+
+        expect(result.messages).toEqual([
+            { role: 'user', content: { type: 'text', text: renderPrompt(prompt.text, args) } },
+        ]);
+        const text = result.messages[0]?.content.type === 'text' ? result.messages[0].content.text : '';
+        expect(text).not.toContain('${arguments.');
+        for (const value of Object.values(args)) {
+            // A value already in the template would pass the containment check without being inserted.
+            expect(prompt.text).not.toContain(value);
+            expect(text).toContain(value);
+        }
 
         await client.close();
     });
