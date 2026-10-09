@@ -101,8 +101,10 @@ Boundaries:
 - The output schema makes `effectiveDate` optional and `carriedOver` an
   optional literal `true`, each with a description stating the rule above.
 - The tool description gains one sentence: "Days whose own rate is in force
-  carry only date and rate; a carried-over day adds effectiveDate and
-  carriedOver: true."
+  contain only date and rate; a carried-over day adds effectiveDate and
+  carriedOver: true." (Until 0.2.1 it read "carry only date and rate",
+  which used "carry" in a second sense one sentence after "carry the
+  earlier rate".)
 - The 366-day cap stays. Its rationale becomes: a full year stays near 6,000
   tokens, under the 10,000-token warning of Claude Code.
 

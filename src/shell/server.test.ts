@@ -179,6 +179,21 @@ describe('createServer', () => {
         await client.close();
     });
 
+    it('shows the title and description it sends in the bundle manifest as well', async () => {
+        const client = await connectedClient();
+        // Claude Desktop shows the .mcpb manifest, not the identity the server sends, so the two must not drift.
+        const manifest = z
+            .object({ display_name: z.string(), description: z.string() })
+            .parse(JSON.parse(readFileSync(new URL('../../manifest.json', import.meta.url), 'utf8')));
+
+        expect({ title: manifest.display_name, description: manifest.description }).toEqual({
+            title: client.getServerVersion()?.title,
+            description: client.getServerVersion()?.description,
+        });
+
+        await client.close();
+    });
+
     it('declares the compact history day: date and rate required, carriedOver only as the constant true', async () => {
         const client = await connectedClient();
         const { tools } = await client.listTools();
@@ -198,9 +213,14 @@ describe('createServer', () => {
             .parse(history?.outputSchema).properties.days.items;
         expect([...daySchema.required].sort()).toEqual(['date', 'rate']);
         expect(daySchema.properties['carriedOver']).toMatchObject({ type: 'boolean', const: true });
-        expect(daySchema.properties['effectiveDate']).toMatchObject({ type: 'string' });
+        expect(daySchema.properties['effectiveDate']).toMatchObject({
+            type: 'string',
+            description:
+                'Present only on carried-over days: the calendar date the rate took effect. ' +
+                'When absent, the rate took effect on date.',
+        });
         expect(history?.description).toContain(
-            'Days whose own rate is in force carry only date and rate; a carried-over day adds effectiveDate and ' +
+            'Days whose own rate is in force contain only date and rate; a carried-over day adds effectiveDate and ' +
                 'carriedOver: true.',
         );
 

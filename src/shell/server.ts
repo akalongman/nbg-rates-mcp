@@ -258,7 +258,7 @@ export function createServer(deps: ServerDeps): McpServer {
                 'Official NBG rate of one currency (GEL per one unit) in force on every calendar day of an inclusive range ' +
                 'of at most 366 days. Dates are calendar days in Tbilisi. Days without a rate of their own (Sundays, ' +
                 'Mondays and days after a public holiday; before September 2021 NBG set a rate for every calendar day) ' +
-                'carry the earlier rate. Days whose own rate is in force carry only date and rate; a carried-over day ' +
+                'carry the earlier rate. Days whose own rate is in force contain only date and rate; a carried-over day ' +
                 'adds effectiveDate and carriedOver: true. Quote effectiveDate when carriedOver is true. A range reaching ' +
                 'a date NBG has not published yet returns an error. One NBG request per call.',
             inputSchema: rateHistoryInput,

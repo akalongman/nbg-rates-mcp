@@ -98,7 +98,10 @@ export const rateHistoryOutput = z.object({
             rate: z.number().describe('GEL per ONE unit of the currency'),
             effectiveDate: z
                 .string()
-                .describe('Present only on carried-over days: the calendar date the rate took effect')
+                .describe(
+                    'Present only on carried-over days: the calendar date the rate took effect. ' +
+                        'When absent, the rate took effect on date.',
+                )
                 .optional(),
             carriedOver: z
                 .literal(true)

@@ -110,6 +110,20 @@ describe('assembleHistory', () => {
         });
     });
 
+    it('names the New Year publication on every day of the five-day gap after it, not only over a weekend', () => {
+        // In BGN_EURO_CHANGEOVER the USD publication valid from 2026-01-01 stays in force until 2026-01-06.
+        const result = assembleHistory(code('USD'), days('2025-12-31', '2026-01-06'), rows(BGN_EURO_CHANGEOVER), TODAY);
+        expect(result.ok && result.value.days).toEqual([
+            { date: '2025-12-31', effectiveDate: '2025-12-31', rate: 2.6951, carriedOver: false },
+            { date: '2026-01-01', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: false },
+            { date: '2026-01-02', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: true },
+            { date: '2026-01-03', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: true },
+            { date: '2026-01-04', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: true },
+            { date: '2026-01-05', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: true },
+            { date: '2026-01-06', effectiveDate: '2026-01-06', rate: 2.6968, carriedOver: false },
+        ]);
+    });
+
     it('carries nothing over before the September 2021 changeover', () => {
         const result = assembleHistory(code('USD'), days('2021-09-03', '2021-09-07'), rows(CHANGEOVER_2021), TODAY);
         expect(result.ok).toBe(true);
