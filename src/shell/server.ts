@@ -41,7 +41,7 @@ export function describeError(error: RatesError): string {
             return `NBG did not quote ${error.code} for the requested date. Call nbg_list_currencies for today's codes; the list has changed over the years.`;
         case 'no_data_for_date': {
             const subject = error.currency === undefined ? 'rates' : `${error.currency} rate`;
-            return `NBG has no ${subject} in force on ${error.date}; the archive starts on ${NBG_ARCHIVE_START} and some currencies were first quoted later.`;
+            return `NBG has no ${subject} in force on ${error.date}. The archive starts on ${NBG_ARCHIVE_START}, and a currency has no rate before NBG first quoted it, after NBG stopped quoting it, or on a day where NBG's records have a gap.`;
         }
         case 'rate_not_published': {
             const latest =

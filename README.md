@@ -186,7 +186,7 @@ A tool that cannot answer returns an error result whose text says what went wron
 - the date is not a real calendar date in the form `YYYY-MM-DD`, or a history range ends before it starts;
 - a history range is longer than 366 days;
 - the currency is not a three-letter code, or NBG did not quote it on the requested date (`nbg_get_rates` lists such codes in `unknownCodes` instead);
-- NBG has no rate in force on the date (the archive starts on 1995-10-14, and some currencies were first quoted later);
+- NBG has no rate in force on the date (the archive starts on 1995-10-14, and a currency has no rate before NBG first quoted it, after NBG stopped quoting it, or where NBG's records have a gap);
 - NBG has not published a rate for the date yet; when the latest published rate is known, the message says from which date it is valid;
 - NBG did not respond usably; the request can be retried;
 - the NBG response did not have the expected shape, which means the NBG endpoint may have changed; please [open an issue](https://github.com/akalongman/nbg-rates-mcp/issues) with the package version.

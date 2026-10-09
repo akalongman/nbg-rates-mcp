@@ -98,6 +98,10 @@ describe('describeError', () => {
                 /AZN.*2005-03-15.*1995-10-14/,
             ],
             [
+                { kind: 'no_data_for_date', date: date('2026-01-01'), currency: code('BGN') },
+                /BGN rate in force on 2026-01-01.*first quoted.*stopped quoting.*gap/,
+            ],
+            [
                 { kind: 'rate_not_published', date: date('2026-10-09'), latestEffectiveDate: date('2026-10-08') },
                 /2026-10-09.*2026-10-08.*17:00/,
             ],
