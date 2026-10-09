@@ -56,6 +56,9 @@ export function createNbgClient(options: NbgClientOptions): NbgClient {
 
     async function attempt(url: string, expected: ExpectedType): Promise<Attempt> {
         const started = Date.now();
+        // One log line per attempt, written when the attempt ends, so a body that fails after the status line
+        // reads "200, then <error>" instead of a second line that looks like another request.
+        let summary: string | undefined;
         try {
             const response = await fetchImpl(url, {
                 headers: {
@@ -64,7 +67,7 @@ export function createNbgClient(options: NbgClientOptions): NbgClient {
                 },
                 signal: AbortSignal.timeout(timeoutMs),
             });
-            log(`GET ${url} -> ${response.status} in ${Date.now() - started}ms`);
+            summary = String(response.status);
             if (response.status === 429 || response.status >= 500) {
                 await response.body?.cancel();
                 return { kind: 'retryable', detail: `HTTP ${response.status}` };
@@ -88,8 +91,10 @@ export function createNbgClient(options: NbgClientOptions): NbgClient {
             return { kind: 'ok', text };
         } catch (error: unknown) {
             const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-            log(`GET ${url} -> ${detail} in ${Date.now() - started}ms`);
+            summary = summary === undefined ? detail : `${summary}, then ${detail}`;
             return { kind: 'retryable', detail };
+        } finally {
+            log(`GET ${url} -> ${summary ?? 'no response'} in ${Date.now() - started}ms`);
         }
     }
 

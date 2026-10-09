@@ -137,6 +137,33 @@ describe('createNbgClient', () => {
             expect(lines).toHaveLength(1);
             expect(lines[0]).toMatch(/GET .*date=2026-10-07 -> 200 in \d+ms/);
         });
+
+        it('logs one line per attempt when the body fails after the status line', async () => {
+            const lines: string[] = [];
+            const brokenBody: typeof fetch = () =>
+                Promise.resolve(
+                    new Response(
+                        new ReadableStream({
+                            start(controller) {
+                                controller.error(new TypeError('terminated'));
+                            },
+                        }),
+                        { status: 200, headers: { 'content-type': 'application/json' } },
+                    ),
+                );
+            const result = await createNbgClient({
+                baseUrl: server.baseUrl,
+                userAgent: 'nbg-rates-mcp/test',
+                retryDelayMs: 5,
+                fetchImpl: brokenBody,
+                log: (line) => lines.push(line),
+            }).fetchDay(date('2026-10-07'), 'en');
+            expect(result.ok).toBe(false);
+            expect(lines).toHaveLength(2);
+            for (const line of lines) {
+                expect(line).toMatch(/GET .*date=2026-10-07 -> 200, then TypeError: terminated in \d+ms/);
+            }
+        });
     });
 
     describe('fetchRange', () => {
