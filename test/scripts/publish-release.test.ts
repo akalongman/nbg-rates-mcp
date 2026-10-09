@@ -93,19 +93,22 @@ describe('publish-release.sh', () => {
     ): { status: number | null; stderr: string; calls: string[] } {
         const log = join(stubDir, 'calls.log');
         writeFileSync(log, '');
-        const result = spawnSync('bash', [SCRIPT, step, '0.2.0'], {
-            encoding: 'utf8',
-            env: {
-                ...process.env,
-                PATH: `${stubDir}:${process.env['PATH'] ?? ''}`,
-                STUB_DIR: stubDir,
-                STUB_LOG: log,
-                NPM_404S: String(npm404s),
-                GH_VIEW: typeof ghView === 'string' ? ghView : '',
-                GH_VIEW_JSON: typeof ghView === 'string' ? '' : JSON.stringify(ghView),
-                RUNNER_TEMP: stubDir,
-            },
-        });
+        // A noexec temp dir would skip the stub: the check stops the run, the dummy token makes a real gh answer 401.
+        const env = {
+            ...process.env,
+            PATH: `${stubDir}:${process.env['PATH'] ?? ''}`,
+            STUB_DIR: stubDir,
+            STUB_LOG: log,
+            NPM_404S: String(npm404s),
+            GH_VIEW: typeof ghView === 'string' ? ghView : '',
+            GH_VIEW_JSON: typeof ghView === 'string' ? '' : JSON.stringify(ghView),
+            RUNNER_TEMP: stubDir,
+            GH_TOKEN: 'stub-not-a-real-token',
+        };
+        expect(spawnSync('bash', ['-c', 'command -v gh'], { encoding: 'utf8', env }).stdout.trim()).toBe(
+            join(stubDir, 'gh'),
+        );
+        const result = spawnSync('bash', [SCRIPT, step, '0.2.0'], { encoding: 'utf8', env });
         return { status: result.status, stderr: result.stderr, calls: readFileSync(log, 'utf8').trim().split('\n') };
     }
 
