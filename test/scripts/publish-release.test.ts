@@ -29,8 +29,12 @@ esac
 const SLEEP_STUB = `#!/usr/bin/env bash
 echo "sleep $1" >> "$STUB_LOG"
 `;
+// Stands in for npm: npm view finds no published version, so the npm step publishes.
+const NPM_STUB = `#!/usr/bin/env bash
+echo "npm $*" >> "$STUB_LOG"
+`;
 
-describe('publish-release.sh registry', () => {
+describe('publish-release.sh', () => {
     let stubDir: string;
 
     beforeEach(() => {
@@ -38,6 +42,7 @@ describe('publish-release.sh registry', () => {
         for (const [name, body] of [
             ['curl', CURL_STUB],
             ['sleep', SLEEP_STUB],
+            ['npm', NPM_STUB],
         ] as const) {
             writeFileSync(join(stubDir, name), body);
             chmodSync(join(stubDir, name), 0o755);
@@ -48,10 +53,13 @@ describe('publish-release.sh registry', () => {
         rmSync(stubDir, { recursive: true, force: true });
     });
 
-    function runRegistryStep(npm404s: number): { status: number | null; stderr: string; calls: string[] } {
+    function runStep(
+        step: 'npm' | 'registry',
+        npm404s = 0,
+    ): { status: number | null; stderr: string; calls: string[] } {
         const log = join(stubDir, 'calls.log');
         writeFileSync(log, '');
-        const result = spawnSync('bash', [SCRIPT, 'registry', '0.2.0'], {
+        const result = spawnSync('bash', [SCRIPT, step, '0.2.0'], {
             encoding: 'utf8',
             env: {
                 ...process.env,
@@ -65,9 +73,9 @@ describe('publish-release.sh registry', () => {
         return { status: result.status, stderr: result.stderr, calls: readFileSync(log, 'utf8').trim().split('\n') };
     }
 
-    it('waits until npm serves the version before fetching the publisher', () => {
+    it('registry: waits until npm serves the version before fetching the publisher', () => {
         // npm processes a publish asynchronously; on 2026-10-09 0.2.0 answered 404 for about 108 seconds.
-        const { calls } = runRegistryStep(2);
+        const { calls } = runStep('registry', 2);
 
         expect(calls.slice(0, -1)).toEqual([
             MCP_REGISTRY_CHECK,
@@ -80,13 +88,23 @@ describe('publish-release.sh registry', () => {
         expect(calls.at(-1)).toMatch(PUBLISHER_DOWNLOAD);
     });
 
-    it('gives up after ten minutes without fetching the publisher, naming the status npm answered', () => {
-        const { status, stderr, calls } = runRegistryStep(Number.MAX_SAFE_INTEGER);
+    it('registry: gives up after ten minutes without fetching the publisher, naming the status npm answered', () => {
+        const { status, stderr, calls } = runStep('registry', Number.MAX_SAFE_INTEGER);
 
         expect(status).toBe(1);
         expect(stderr).toContain('npm still answers 404 for nbg-rates-mcp@0.2.0');
         expect(calls.filter((call) => call === NPM_VERSION_CHECK)).toHaveLength(40);
         expect(calls.filter((call) => call === 'sleep 15')).toHaveLength(39);
         expect(calls.some((call) => PUBLISHER_DOWNLOAD.test(call))).toBe(false);
+    });
+
+    it('npm: publishes the tarball the build job packed, since the publish job cannot build', () => {
+        const { status, calls } = runStep('npm');
+
+        expect(status).toBe(0);
+        expect(calls).toEqual([
+            'npm view nbg-rates-mcp@0.2.0 version',
+            'npm publish nbg-rates-mcp-0.2.0.tgz --access public',
+        ]);
     });
 });

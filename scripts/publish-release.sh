@@ -17,7 +17,9 @@ publish_npm() {
         echo "$package@$version is already on npm"
         return
     fi
-    npm publish --access public
+    # The tarball the build job packed: the publish job installs no dependencies, so a folder publish, whose
+    # prepublishOnly script builds, cannot run there.
+    npm publish "$package-$version.tgz" --access public
 }
 
 # The body of this version's "## <version> - <date>" section in CHANGELOG.md.
