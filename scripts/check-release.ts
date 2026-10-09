@@ -1,11 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import * as z from 'zod';
+import { parseCalendarDate } from '../src/core/dates.js';
 
 /**
  * Release preconditions, checked before anything is published: every version field equals the tag's version
- * (including each server.json package entry, which is what registry clients install), and the npm CLI is new
- * enough for trusted publishing. Usage: tsx scripts/check-release.ts <version>
+ * (including each server.json package entry, which is what registry clients install), CHANGELOG.md has a dated
+ * heading for the version (its section becomes the GitHub release notes), and the npm CLI is new enough for
+ * trusted publishing. Usage: tsx scripts/check-release.ts <version>
  */
 
 const MINIMUM_NPM = [11, 5, 1] as const;
@@ -28,6 +30,18 @@ function isAtLeast(actual: string, minimum: ReadonlyArray<number>): boolean {
     return true;
 }
 
+function changelogProblem(changelog: string, version: string): string | undefined {
+    const prefix = `## ${version} - `;
+    const heading = changelog.split('\n').find((line) => line.startsWith(prefix));
+    if (heading === undefined) {
+        return `CHANGELOG.md has no "${prefix}YYYY-MM-DD" heading`;
+    }
+    const released = heading.slice(prefix.length).trim();
+    return parseCalendarDate(released).ok
+        ? undefined
+        : `CHANGELOG.md dates ${version} as "${released}", not a YYYY-MM-DD calendar date`;
+}
+
 const [tagVersion] = process.argv.slice(2);
 if (tagVersion === undefined) {
     console.error('usage: tsx scripts/check-release.ts <version>');
@@ -44,6 +58,11 @@ const versions: ReadonlyArray<readonly [string, string]> = [
 const problems = versions
     .filter(([, version]) => version !== tagVersion)
     .map(([file, version]) => `${file} has ${version}, the tag is ${tagVersion}`);
+
+const changelog = changelogProblem(readFileSync('CHANGELOG.md', 'utf8'), tagVersion);
+if (changelog !== undefined) {
+    problems.push(changelog);
+}
 
 const npmVersion = execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim();
 if (!isAtLeast(npmVersion, MINIMUM_NPM)) {

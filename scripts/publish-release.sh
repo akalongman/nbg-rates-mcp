@@ -20,11 +20,25 @@ publish_npm() {
     npm publish --access public
 }
 
+# The body of this version's "## <version> - <date>" section in CHANGELOG.md.
+release_notes() {
+    awk -v heading="## $version - " '
+        index($0, heading) == 1 { found = 1; next }
+        found && /^## / { exit }
+        found { print }
+    ' CHANGELOG.md
+}
+
 publish_github() {
-    local bundle="$package-$version.mcpb" complete
+    local bundle="$package-$version.mcpb" complete notes
     if ! complete=$(gh release view "v$version" --json isDraft,assets \
         --jq "(.isDraft | not) and any(.assets[]; .name == \"$bundle\")" 2> /dev/null); then
-        gh release create "v$version" "$bundle" --title "v$version" --notes-file CHANGELOG.md
+        notes=$(release_notes)
+        if [ -z "${notes//[[:space:]]/}" ]; then
+            echo "CHANGELOG.md has no notes under ## $version" >&2
+            exit 1
+        fi
+        gh release create "v$version" "$bundle" --title "v$version" --notes "$notes"
         return
     fi
     if [ "$complete" = true ]; then
