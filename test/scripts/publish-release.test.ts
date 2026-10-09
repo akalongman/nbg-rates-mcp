@@ -35,9 +35,16 @@ echo "npm $*" >> "$STUB_LOG"
 `;
 // Stands in for gh: `release view` answers per GH_VIEW (missing: exit 1; false or true: the --jq result), and
 // `release create` logs its arguments without the notes and writes the notes to a file, since they span lines.
+// Given GH_VIEW_JSON, `release view` instead applies the script's own --jq expression to that release document
+// with jq, as gh does, so a test can pin what the expression decides.
 const GH_STUB = `#!/usr/bin/env bash
 if [ "$1 $2" = "release view" ]; then
     echo "gh release view $3" >> "$STUB_LOG"
+    if [ -n "$GH_VIEW_JSON" ]; then
+        while [ "$#" -gt 0 ] && [ "$1" != --jq ]; do shift; done
+        jq -r "$2" <<< "$GH_VIEW_JSON"
+        exit
+    fi
     if [ "$GH_VIEW" = missing ]; then exit 1; fi
     printf '%s' "$GH_VIEW"
     exit 0
@@ -53,6 +60,9 @@ const BUNDLE = join(ROOT, 'nbg-rates-mcp-0.2.0.mcpb');
 const LATEST = join(ROOT, 'nbg-rates-mcp-latest.mcpb');
 const INSTALL_BLOCK =
     'Install: on Claude Desktop (macOS, Windows) download [nbg-rates-mcp-0.2.0.mcpb](https://github.com/akalongman/nbg-rates-mcp/releases/download/v0.2.0/nbg-rates-mcp-0.2.0.mcpb) and open it. In Claude Code run `claude mcp add nbg-rates -- npx -y nbg-rates-mcp@0.2.0`. Other clients: see the [README](https://github.com/akalongman/nbg-rates-mcp#install).';
+
+// The fields of `gh release view --json isDraft,assets` that the completeness check reads.
+type GhRelease = { readonly isDraft: boolean; readonly assets: ReadonlyArray<{ readonly name: string }> };
 
 describe('publish-release.sh', () => {
     let stubDir: string;
@@ -79,7 +89,7 @@ describe('publish-release.sh', () => {
     function runStep(
         step: 'npm' | 'registry' | 'github',
         npm404s = 0,
-        ghView = 'missing',
+        ghView: 'missing' | 'false' | 'true' | GhRelease = 'missing',
     ): { status: number | null; stderr: string; calls: string[] } {
         const log = join(stubDir, 'calls.log');
         writeFileSync(log, '');
@@ -91,7 +101,8 @@ describe('publish-release.sh', () => {
                 STUB_DIR: stubDir,
                 STUB_LOG: log,
                 NPM_404S: String(npm404s),
-                GH_VIEW: ghView,
+                GH_VIEW: typeof ghView === 'string' ? ghView : '',
+                GH_VIEW_JSON: typeof ghView === 'string' ? '' : JSON.stringify(ghView),
                 RUNNER_TEMP: stubDir,
             },
         });
@@ -175,6 +186,32 @@ describe('publish-release.sh', () => {
 
             expect(status).toBe(0);
             expect(calls).toEqual(['gh release view v0.2.0']);
+        });
+
+        const FINISH_RELEASE = [
+            'gh release view v0.2.0',
+            'gh release upload v0.2.0 nbg-rates-mcp-0.2.0.mcpb nbg-rates-mcp-latest.mcpb --clobber',
+            'gh release edit v0.2.0 --draft=false',
+        ];
+
+        it.each([
+            { holding: 'only the versioned bundle', assets: ['nbg-rates-mcp-0.2.0.mcpb'], expected: FINISH_RELEASE },
+            { holding: 'only the latest bundle', assets: ['nbg-rates-mcp-latest.mcpb'], expected: FINISH_RELEASE },
+            {
+                holding: 'both bundles',
+                assets: ['nbg-rates-mcp-0.2.0.mcpb', 'nbg-rates-mcp-latest.mcpb'],
+                expected: ['gh release view v0.2.0'],
+            },
+        ])('checks a published release holding $holding for both bundles', ({ assets, expected }) => {
+            withBundle();
+
+            const { status, calls } = runStep('github', 0, {
+                isDraft: false,
+                assets: assets.map((name) => ({ name })),
+            });
+
+            expect(status).toBe(0);
+            expect(calls).toEqual(expected);
         });
     });
 });
