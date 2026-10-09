@@ -1,7 +1,7 @@
 {
     "name": "nbg-rates-mcp",
     "version": "0.1.0",
-    "description": "Official National Bank of Georgia (NBG) GEL exchange rates for AI agents, with correct per-unit values and date semantics",
+    "description": "GEL exchange rates from the National Bank of Georgia (NBG) for AI agents, with correct per-unit values and date semantics. Not affiliated with NBG.",
     "keywords": [
         "nbg",
         "national-bank-of-georgia",

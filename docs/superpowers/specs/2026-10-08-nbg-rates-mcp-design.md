@@ -580,8 +580,14 @@ vitest, fast-check, typescript-eslint, eslint, prettier, tsx,
 
 Package metadata: keywords `nbg`, `national-bank-of-georgia`, `georgia`,
 `gel`, `lari`, `exchange-rates`, `currency`, `mcp`, `mcp-server`.
-Description: "Official National Bank of Georgia (NBG) GEL exchange rates for
-AI agents, with correct per-unit values and date semantics". `mcpName`:
+Description: "GEL exchange rates from the National Bank of Georgia (NBG) for
+AI agents, with correct per-unit values and date semantics. Not affiliated
+with NBG." The registry `server.json` and the MCPB `manifest.json` carry a
+short form within the registry's 100-character limit: "GEL exchange rates
+from the National Bank of Georgia with per-unit values. Not affiliated with
+NBG." No description opens with "Official": the package is not published by
+NBG, while "the official NBG rate" stays correct inside tool descriptions
+and the README as the name of the rate NBG sets. `mcpName`:
 `io.github.akalongman/nbg-rates`.
 
 README, written agent-neutral: what it is and a disclaimer that it is
