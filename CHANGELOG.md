@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.2.1 - 2026-10-09
+
+Fixed: the release job waits for npm to serve a newly published version before registering it with the MCP registry, which rejected 0.2.0 on the first attempt. The package itself is unchanged.
+
 ## 0.2.0 - 2026-10-09
 
 Breaking: `nbg_rate_history` days are now `{ date, rate }` when the day's own rate is in force; only carried-over days add `effectiveDate` and `carriedOver: true`. A full year of history is about 40% smaller.
