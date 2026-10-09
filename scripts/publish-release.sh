@@ -23,7 +23,7 @@ publish_npm() {
 }
 
 # The body of this version's "## <version> - <date>" section in CHANGELOG.md.
-release_notes() {
+changelog_section() {
     awk -v heading="## $version - " '
         index($0, heading) == 1 { found = 1; next }
         found && /^## / { exit }
@@ -31,25 +31,38 @@ release_notes() {
     ' CHANGELOG.md
 }
 
+# How to install this version, then its changelog section. The release page links its own bundle, not the
+# "latest" alias, so an old release page stays truthful.
+release_notes() {
+    local bundle="$package-$version.mcpb" section
+    section=$(changelog_section)
+    if [ -z "${section//[[:space:]]/}" ]; then
+        echo "CHANGELOG.md has no notes under ## $version" >&2
+        return 1
+    fi
+    # The backticks are a markdown code span, printed literally.
+    # shellcheck disable=SC2016
+    printf 'Install: on Claude Desktop (macOS, Windows) download [%s](https://github.com/akalongman/nbg-rates-mcp/releases/download/v%s/%s) and open it. In Claude Code run `claude mcp add nbg-rates -- npx -y nbg-rates-mcp@%s`. Other clients: see the [README](https://github.com/akalongman/nbg-rates-mcp#install).\n\n%s\n' \
+        "$bundle" "$version" "$bundle" "$version" "$section"
+}
+
 publish_github() {
-    local bundle="$package-$version.mcpb" complete notes
+    local bundle="$package-$version.mcpb" latest="$package-latest.mcpb" complete notes
+    # The same bytes under a fixed name, so releases/latest/download/<latest> always fetches the newest release.
+    cp "$bundle" "$latest"
     if ! complete=$(gh release view "v$version" --json isDraft,assets \
-        --jq "(.isDraft | not) and any(.assets[]; .name == \"$bundle\")" 2> /dev/null); then
-        notes=$(release_notes)
-        if [ -z "${notes//[[:space:]]/}" ]; then
-            echo "CHANGELOG.md has no notes under ## $version" >&2
-            exit 1
-        fi
-        gh release create "v$version" "$bundle" --title "v$version" --notes "$notes"
+        --jq "(.isDraft | not) and any(.assets[]; .name == \"$bundle\") and any(.assets[]; .name == \"$latest\")" 2> /dev/null); then
+        notes=$(release_notes) || exit 1
+        gh release create "v$version" "$bundle" "$latest" --title "v$version" --notes "$notes"
         return
     fi
     if [ "$complete" = true ]; then
-        echo "GitHub release v$version already exists with $bundle"
+        echo "GitHub release v$version already exists with $bundle and $latest"
         return
     fi
     # gh creates a release as a draft and publishes it after the upload, so a
-    # cancelled run leaves a draft or a release without the bundle: finish it.
-    gh release upload "v$version" "$bundle" --clobber
+    # cancelled run leaves a draft or a release missing an asset: finish it.
+    gh release upload "v$version" "$bundle" "$latest" --clobber
     gh release edit "v$version" --draft=false
 }
 

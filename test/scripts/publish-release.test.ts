@@ -33,6 +33,26 @@ echo "sleep $1" >> "$STUB_LOG"
 const NPM_STUB = `#!/usr/bin/env bash
 echo "npm $*" >> "$STUB_LOG"
 `;
+// Stands in for gh: `release view` answers per GH_VIEW (missing: exit 1; false or true: the --jq result), and
+// `release create` logs its arguments without the notes and writes the notes to a file, since they span lines.
+const GH_STUB = `#!/usr/bin/env bash
+if [ "$1 $2" = "release view" ]; then
+    echo "gh release view $3" >> "$STUB_LOG"
+    if [ "$GH_VIEW" = missing ]; then exit 1; fi
+    printf '%s' "$GH_VIEW"
+    exit 0
+fi
+if [ "$1 $2" = "release create" ]; then
+    printf '%s' "\${@: -1}" > "$STUB_DIR/notes"
+    set -- "\${@:1:$#-1}"
+fi
+echo "gh $*" >> "$STUB_LOG"
+`;
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const BUNDLE = join(ROOT, 'nbg-rates-mcp-0.2.0.mcpb');
+const LATEST = join(ROOT, 'nbg-rates-mcp-latest.mcpb');
+const INSTALL_BLOCK =
+    'Install: on Claude Desktop (macOS, Windows) download [nbg-rates-mcp-0.2.0.mcpb](https://github.com/akalongman/nbg-rates-mcp/releases/download/v0.2.0/nbg-rates-mcp-0.2.0.mcpb) and open it. In Claude Code run `claude mcp add nbg-rates -- npx -y nbg-rates-mcp@0.2.0`. Other clients: see the [README](https://github.com/akalongman/nbg-rates-mcp#install).';
 
 describe('publish-release.sh', () => {
     let stubDir: string;
@@ -43,6 +63,7 @@ describe('publish-release.sh', () => {
             ['curl', CURL_STUB],
             ['sleep', SLEEP_STUB],
             ['npm', NPM_STUB],
+            ['gh', GH_STUB],
         ] as const) {
             writeFileSync(join(stubDir, name), body);
             chmodSync(join(stubDir, name), 0o755);
@@ -51,11 +72,14 @@ describe('publish-release.sh', () => {
 
     afterEach(() => {
         rmSync(stubDir, { recursive: true, force: true });
+        rmSync(BUNDLE, { force: true });
+        rmSync(LATEST, { force: true });
     });
 
     function runStep(
-        step: 'npm' | 'registry',
+        step: 'npm' | 'registry' | 'github',
         npm404s = 0,
+        ghView = 'missing',
     ): { status: number | null; stderr: string; calls: string[] } {
         const log = join(stubDir, 'calls.log');
         writeFileSync(log, '');
@@ -67,6 +91,7 @@ describe('publish-release.sh', () => {
                 STUB_DIR: stubDir,
                 STUB_LOG: log,
                 NPM_404S: String(npm404s),
+                GH_VIEW: ghView,
                 RUNNER_TEMP: stubDir,
             },
         });
@@ -106,5 +131,50 @@ describe('publish-release.sh', () => {
             'npm view nbg-rates-mcp@0.2.0 version',
             'npm publish nbg-rates-mcp-0.2.0.tgz --access public',
         ]);
+    });
+
+    describe('github', () => {
+        function withBundle(): void {
+            // The build job's artifact: the versioned bundle in the repository root, where the publish job runs.
+            writeFileSync(BUNDLE, 'bundle bytes');
+        }
+
+        it('creates the release with both bundle names and notes that start with the install block', () => {
+            withBundle();
+
+            const { status, calls } = runStep('github');
+
+            expect(status).toBe(0);
+            expect(calls).toEqual([
+                'gh release view v0.2.0',
+                'gh release create v0.2.0 nbg-rates-mcp-0.2.0.mcpb nbg-rates-mcp-latest.mcpb --title v0.2.0 --notes',
+            ]);
+            expect(readFileSync(LATEST, 'utf8')).toBe('bundle bytes');
+            const notes = readFileSync(join(stubDir, 'notes'), 'utf8');
+            expect(notes.startsWith(`${INSTALL_BLOCK}\n\n`)).toBe(true);
+            expect(notes).toContain('Breaking: `nbg_rate_history` days are now');
+        });
+
+        it('finishes a release that lacks one of the assets by uploading both and publishing it', () => {
+            withBundle();
+
+            const { status, calls } = runStep('github', 0, 'false');
+
+            expect(status).toBe(0);
+            expect(calls).toEqual([
+                'gh release view v0.2.0',
+                'gh release upload v0.2.0 nbg-rates-mcp-0.2.0.mcpb nbg-rates-mcp-latest.mcpb --clobber',
+                'gh release edit v0.2.0 --draft=false',
+            ]);
+        });
+
+        it('leaves a complete release alone', () => {
+            withBundle();
+
+            const { status, calls } = runStep('github', 0, 'true');
+
+            expect(status).toBe(0);
+            expect(calls).toEqual(['gh release view v0.2.0']);
+        });
     });
 });
