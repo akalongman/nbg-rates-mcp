@@ -72,6 +72,27 @@ sha256_of() {
     fi
 }
 
+# npm processes a publish asynchronously: for a minute or two after npm publish
+# returns, the version URL can answer 404, and the MCP registry rejects a server
+# whose package version it cannot fetch. Poll the URL its validator fetches.
+npm_wait_checks=40
+npm_wait_seconds=15
+wait_for_npm() {
+    local url="https://registry.npmjs.org/$package/$version" check status
+    for ((check = 1; check <= npm_wait_checks; check++)); do
+        status=$(curl -s -o /dev/null -w '%{http_code}' -H 'Accept: application/json' "$url" || true)
+        if [ "$status" = 200 ]; then
+            return
+        fi
+        if [ "$check" -lt "$npm_wait_checks" ]; then
+            echo "npm answers $status for $package@$version; checking again in ${npm_wait_seconds}s ($check/$npm_wait_checks)"
+            sleep "$npm_wait_seconds"
+        fi
+    done
+    echo "npm still answers $status for $package@$version after $npm_wait_checks checks ${npm_wait_seconds}s apart; not publishing to the MCP registry" >&2
+    exit 1
+}
+
 publish_registry() {
     local status platform expected tarball actual
     status=$(curl -s -o /dev/null -w '%{http_code}' \
@@ -80,6 +101,7 @@ publish_registry() {
         echo "the MCP registry already lists $server $version"
         return
     fi
+    wait_for_npm
     platform="$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
     if ! expected=$(publisher_sha256 "$platform"); then
         echo "mcp-publisher $publisher_tag has no pinned checksum for $platform; supported: linux and darwin on amd64 and arm64" >&2
