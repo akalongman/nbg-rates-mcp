@@ -21,11 +21,20 @@ publish_npm() {
 }
 
 publish_github() {
-    if gh release view "v$version" > /dev/null 2>&1; then
-        echo "GitHub release v$version already exists"
+    local bundle="$package-$version.mcpb" complete
+    if ! complete=$(gh release view "v$version" --json isDraft,assets \
+        --jq "(.isDraft | not) and any(.assets[]; .name == \"$bundle\")" 2> /dev/null); then
+        gh release create "v$version" "$bundle" --title "v$version" --notes-file CHANGELOG.md
         return
     fi
-    gh release create "v$version" "$package-$version.mcpb" --title "v$version" --notes-file CHANGELOG.md
+    if [ "$complete" = true ]; then
+        echo "GitHub release v$version already exists with $bundle"
+        return
+    fi
+    # gh creates a release as a draft and publishes it after the upload, so a
+    # cancelled run leaves a draft or a release without the bundle: finish it.
+    gh release upload "v$version" "$bundle" --clobber
+    gh release edit "v$version" --draft=false
 }
 
 # SHA-256 of each mcp-publisher release tarball, copied from the release's
