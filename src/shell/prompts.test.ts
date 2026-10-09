@@ -1,4 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import * as z from 'zod';
 import { PROMPTS, promptArgsSchema, renderPrompt, type PromptDefinition } from './prompts.js';
 
 const PLACEHOLDER = /\$\{arguments\.([A-Za-z_]+)\}/g;
@@ -89,5 +91,41 @@ describe('promptArgsSchema', () => {
         expect(schema.safeParse({ amount: '1500', from: 'USD', to: 'GEL' }).success).toBe(true);
         expect(schema.safeParse({ amount: '1500', from: 'USD' }).success).toBe(false);
         expect(schema.shape['date']?.description).toBe('Calendar date, YYYY-MM-DD; today when empty');
+    });
+});
+
+describe('manifest.json', () => {
+    const manifest = z
+        .object({
+            icon: z.string(),
+            long_description: z.string(),
+            prompts: z.array(
+                z.object({
+                    name: z.string(),
+                    description: z.string(),
+                    arguments: z.array(z.string()),
+                    text: z.string(),
+                }),
+            ),
+        })
+        .parse(JSON.parse(readFileSync(new URL('../../manifest.json', import.meta.url), 'utf8')));
+
+    it('lists the same prompts the server serves: names, descriptions, argument names in order, and texts', () => {
+        // Claude Desktop shows the manifest's prompts; the model gets the server's. The two must not drift.
+        expect(manifest.prompts).toEqual(
+            PROMPTS.map((prompt) => ({
+                name: prompt.name,
+                description: prompt.description,
+                arguments: prompt.arguments.map((argument) => argument.name),
+                text: prompt.text,
+            })),
+        );
+    });
+
+    it('names an icon file that exists and a long description with the example questions', () => {
+        expect(manifest.icon).toBe('assets/icon.png');
+        expect(existsSync(new URL(`../../${manifest.icon}`, import.meta.url))).toBe(true);
+        expect(manifest.long_description).toContain('What was the USD rate on 30 September 2026?');
+        expect(manifest.long_description).toContain('Not affiliated');
     });
 });

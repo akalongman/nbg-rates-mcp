@@ -4,9 +4,11 @@
     "display_name": "NBG Rates (National Bank of Georgia)",
     "version": "0.2.2",
     "description": "GEL exchange rates from the National Bank of Georgia with per-unit values. Not affiliated with NBG.",
+    "long_description": "Ask Claude for the official National Bank of Georgia (NBG) rate of the lari (GEL) on any date, or to convert an amount at that rate. The server runs on your machine, needs no account and no key, and reads the rates from nbg.gov.ge.\n\nWhat you can ask:\n\n- What was the USD rate on 30 September 2026?\n- Convert 1,500 USD to GEL at the NBG rate of 27 September 2026.\n- Give me the EUR rate for every day of September 2026 as a table.\n- How many US dollars is 1 euro today, at NBG rates?\n\nGeorgian accounting and tax reporting use the official NBG rate in force on the date of the transaction. This server returns exactly that rate, the one shown on nbg.gov.ge for the day you name, and says when a Sunday, a Monday or a holiday carries the rate set earlier. A date NBG has not published yet is answered with an error, never a guess.\n\nThis is an independent open-source project. Not affiliated with the National Bank of Georgia.",
     "author": { "name": "Avtandil Kikabidze", "url": "https://github.com/akalongman" },
     "repository": { "type": "git", "url": "https://github.com/akalongman/nbg-rates-mcp" },
     "license": "MIT",
+    "icon": "assets/icon.png",
     "keywords": ["nbg", "georgia", "gel", "lari", "exchange-rates", "currency"],
     "server": {
         "type": "node",
@@ -25,6 +27,32 @@
         { "name": "nbg_convert", "description": "Convert an amount using the official NBG rate in force on a date" },
         { "name": "nbg_list_currencies", "description": "Currencies NBG publishes a GEL rate for today" },
         { "name": "nbg_rate_history", "description": "One currency's official rate for every calendar day in a range" }
+    ],
+    "prompts": [
+        {
+            "name": "nbg_rates_today",
+            "description": "Today's official NBG rates of the lari for a few currencies",
+            "arguments": ["currencies"],
+            "text": "Give me today's official National Bank of Georgia rates for ${arguments.currencies} (USD, EUR and GBP when none are named) with nbg_get_rates. For each currency report the rate in GEL per one unit and the change versus the previous rate, then the date the rates took effect and whether they are carried over from an earlier day."
+        },
+        {
+            "name": "nbg_rate_on_date",
+            "description": "The official NBG rate of one currency in force on a date",
+            "arguments": ["currency", "date"],
+            "text": "What was the official National Bank of Georgia rate of ${arguments.currency} in force on ${arguments.date}? Use nbg_get_rates. Report the rate in GEL per one unit, the date it took effect, and whether it is carried over from an earlier day."
+        },
+        {
+            "name": "nbg_convert_amount",
+            "description": "Convert an amount at the official NBG rate in force on a date",
+            "arguments": ["amount", "from", "to", "date"],
+            "text": "Convert ${arguments.amount} ${arguments.from} to ${arguments.to} at the official National Bank of Georgia rate in force on ${arguments.date} (today when no date is given) with nbg_convert. Show the rate used, the date it took effect, whether it is carried over, and the result rounded to 2 decimal places."
+        },
+        {
+            "name": "nbg_monthly_rates",
+            "description": "The official NBG rate of one currency for every day of a month, as a table",
+            "arguments": ["currency", "month"],
+            "text": "Using nbg_rate_history from the first to the last day of ${arguments.month}, give me a table of the official National Bank of Georgia rate of ${arguments.currency} for every day of the month, in GEL per one unit, marking the days whose rate is carried over from an earlier day. Below the table give the first, last, lowest and highest rate of the month."
+        }
     ],
     "compatibility": {
         "claude_desktop": ">=1.0.0",
