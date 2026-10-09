@@ -2,7 +2,7 @@
     "manifest_version": "0.3",
     "name": "nbg-rates-mcp",
     "display_name": "NBG Rates (National Bank of Georgia)",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "GEL exchange rates from the National Bank of Georgia with per-unit values. Not affiliated with NBG.",
     "author": { "name": "Avtandil Kikabidze", "url": "https://github.com/akalongman" },
     "repository": { "type": "git", "url": "https://github.com/akalongman/nbg-rates-mcp" },

@@ -8,13 +8,13 @@
         "url": "https://github.com/akalongman/nbg-rates-mcp",
         "source": "github"
     },
-    "version": "0.1.0",
+    "version": "0.2.0",
     "packages": [
         {
             "registryType": "npm",
             "registryBaseUrl": "https://registry.npmjs.org",
             "identifier": "nbg-rates-mcp",
-            "version": "0.1.0",
+            "version": "0.2.0",
             "runtimeHint": "npx",
             "transport": { "type": "stdio" }
         }
