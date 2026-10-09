@@ -1,0 +1,17 @@
+{
+    "description": "GEL exchange rates from the National Bank of Georgia (NBG) for AI agents (MCP server). Not affiliated with NBG.",
+    "homepage": "https://www.npmjs.com/package/nbg-rates-mcp",
+    "topics": [
+        "mcp",
+        "mcp-server",
+        "model-context-protocol",
+        "exchange-rates",
+        "currency",
+        "georgia",
+        "national-bank-of-georgia",
+        "nbg",
+        "gel",
+        "lari",
+        "claude"
+    ]
+}
