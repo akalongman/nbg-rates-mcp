@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.3.0 - 2026-10-09
+
+Added: four prompts (today's rates, rate on a date, convert an amount, rates table for a month), shown by clients such as Claude Desktop as ready-made questions; an icon and a long description in the Claude Desktop bundle.
+
+Changed: the README leads with what to ask and which rate applies, links the Claude Desktop bundle directly and lists where `claude_desktop_config.json` lives on each OS. Release notes start with install steps, and every release also carries the bundle as `nbg-rates-mcp-latest.mcpb` so one link always downloads the newest one.
+
+Repository: topics and homepage are defined in `.github/repository.json` and applied with `scripts/apply-repo-settings.sh`.
+
 ## 0.2.2 - 2026-10-09
 
 Fixed: a carried-over rate for a day in the last week is checked with NBG again after ten minutes instead of being kept for twelve hours. NBG sometimes publishes a table for a past day after that day (the table valid from Saturday 2026-09-26 appeared on Monday 2026-09-28), and a long-running client kept serving the rate it replaced.

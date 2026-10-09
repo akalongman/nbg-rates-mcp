@@ -2,7 +2,7 @@
     "manifest_version": "0.3",
     "name": "nbg-rates-mcp",
     "display_name": "NBG Rates (National Bank of Georgia)",
-    "version": "0.2.2",
+    "version": "0.3.0",
     "description": "GEL exchange rates from the National Bank of Georgia with per-unit values. Not affiliated with NBG.",
     "long_description": "Ask Claude for the official National Bank of Georgia (NBG) rate of the lari (GEL) on any date, or to convert an amount at that rate. The server runs on your machine, needs no account and no key, and reads the rates from nbg.gov.ge.\n\nWhat you can ask:\n\n- What was the USD rate on 30 September 2026?\n- Convert 1,500 USD to GEL at the NBG rate of 27 September 2026.\n- Give me the EUR rate for every day of September 2026 as a table.\n- How many US dollars is 1 euro today, at NBG rates?\n\nGeorgian accounting and tax reporting use the official NBG rate in force on the date of the transaction. This server returns exactly that rate, the one shown on nbg.gov.ge for the day you name, and says when a Sunday, a Monday or the day after a public holiday carries the rate set earlier. A date NBG has not published yet is answered with an error, never a guess.\n\nThis is an independent open-source project. Not affiliated with the National Bank of Georgia.",
     "author": { "name": "Avtandil Kikabidze", "url": "https://github.com/akalongman" },
