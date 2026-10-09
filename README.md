@@ -1,10 +1,47 @@
 # nbg-rates-mcp
 
-`nbg-rates-mcp` gives AI agents the official National Bank of Georgia (NBG) exchange rates of the lari (GEL). It runs locally over stdio, needs no account and no key, and encodes the rules a raw call gets wrong: per-unit values, Tbilisi calendar days, an explicit `carriedOver` flag when a day has no rate of its own, and an error, never a stale rate, for a date NBG has not published yet.
+Ask Claude, or any other MCP client, for the official National Bank of Georgia (NBG) rate of the lari (GEL) on any date, or to convert an amount at that rate. `nbg-rates-mcp` runs on your machine, needs no account and no key, and encodes the rules a raw lookup gets wrong: per-unit values, Tbilisi calendar days, an explicit flag when a day has no rate of its own, and an error, never a stale rate, for a date NBG has not published yet.
 
 This is an independent open-source project, not affiliated with the National Bank of Georgia. NBG's website, [nbg.gov.ge](https://nbg.gov.ge), is the source of truth. The NBG endpoints this server reads are undocumented and may change.
 
+## What you can ask
+
+- What was the USD rate on 30 September 2026?
+- Convert 1,500 USD to GEL at the NBG rate of 27 September 2026.
+- Give me the EUR rate for every day of September 2026 as a table.
+- How many US dollars is 1 euro today, at NBG rates?
+
+For the second question the answer is: 27 September 2026 is a Sunday, so the rate in force is the one NBG set for Saturday 26 September, 2.6080 GEL per USD, still valid on Sunday; 1,500 USD = 3,912.00 GEL, and the answer says the rate is carried over from the 26th.
+
+In Claude Desktop the "+" menu of a chat also lists four ready-made questions from this server: today's rates, the rate on a date, converting an amount, and a rates table for a month.
+
+## Which rate you get
+
+Georgian accounting and tax reporting use the official NBG rate in force on the date of the transaction. This server returns exactly that rate, the one shown on nbg.gov.ge for the day you name.
+
+NBG sets rates on business days around 17:00 Tbilisi time, valid from the next calendar day. A Sunday, a Monday or the day after a public holiday has no rate of its own and keeps the last one set; the answer says so (`carriedOver`) and names the day that rate took effect. A date NBG has not published yet, including tomorrow before about 17:00 Tbilisi time, is answered with an error, never a guess.
+
 ## Install
+
+### Claude Desktop (macOS, Windows)
+
+Download [nbg-rates-mcp-latest.mcpb](https://github.com/akalongman/nbg-rates-mcp/releases/latest/download/nbg-rates-mcp-latest.mcpb) and open it. Claude Desktop installs the extension and runs it with its own Node.js, so nothing else is needed. The same file, under its version number, is attached to every [release](https://github.com/akalongman/nbg-rates-mcp/releases).
+
+### Claude Desktop (Linux beta) and manual configuration
+
+Add the server to `claude_desktop_config.json`. The file may not exist yet; create it with the snippet below as its whole content, then restart Claude Desktop.
+
+| Platform | Location of `claude_desktop_config.json` |
+| -------- | ---------------------------------------- |
+| macOS    | `~/Library/Application Support/Claude/`  |
+| Windows  | `%APPDATA%\Claude\`                      |
+| Linux    | `~/.config/Claude/`                      |
+
+```json
+{ "mcpServers": { "nbg-rates": { "command": "npx", "args": ["-y", "nbg-rates-mcp"] } } }
+```
+
+This needs Node.js 22 or later; see [Node.js](#nodejs) below.
 
 ### Claude Code
 
@@ -16,16 +53,6 @@ To make the server available in every project, add it with user scope:
 
 ```bash
 claude mcp add --scope user nbg-rates -- npx -y nbg-rates-mcp
-```
-
-### Claude Desktop
-
-On macOS and Windows, download `nbg-rates-mcp-<version>.mcpb` from the [latest GitHub release](https://github.com/akalongman/nbg-rates-mcp/releases/latest) and open it. Claude Desktop installs the bundle and runs it with its own Node.js, so nothing else is needed.
-
-On the Claude Desktop Linux beta, elsewhere, or to configure the server by hand, add it to `claude_desktop_config.json`:
-
-```json
-{ "mcpServers": { "nbg-rates": { "command": "npx", "args": ["-y", "nbg-rates-mcp"] } } }
 ```
 
 ### Cursor and other clients
@@ -64,6 +91,8 @@ Add the same `mcpServers` entry to the client's MCP settings. In Cursor that is 
   ```
 
 - WSL: the same commands as Debian and Ubuntu, run inside the WSL shell.
+
+The rest of this document is for developers and for people writing instructions for a model.
 
 ## Tools
 
@@ -251,7 +280,7 @@ Before a pull request, also run `npm run format:check`, `npm run lint` and `npm 
 
 The code is split into `src/core`, pure functions with no I/O (date rules, parsing, per-unit normalisation, conversion, history), and `src/shell`, which holds the effects (the NBG HTTP client, the cache, the rates service and the MCP server). `src/bin.ts` is the executable.
 
-The repository's rulesets (protection of `main`, and release tags that only admins may create) are defined in `.github/rulesets/`; a maintainer applies a change with `scripts/apply-rulesets.sh`.
+The repository's rulesets (protection of `main`, and release tags that only admins may create) are defined in `.github/rulesets/` and applied with `scripts/apply-rulesets.sh`; its description, homepage and topics are defined in `.github/repository.json` and applied with `scripts/apply-repo-settings.sh`. Both are run by a maintainer after a change, never edited in the GitHub UI.
 
 ## License
 
