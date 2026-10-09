@@ -1,6 +1,8 @@
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import * as z from 'zod';
 import { code, date } from '../../test/helpers/values.js';
 import { selectCurrencies } from '../core/normalize.js';
 import {
@@ -141,6 +143,37 @@ describe('createServer', () => {
         expect(resourceTemplates.map((template) => template.uriTemplate)).toEqual(['nbg://rates/{date}']);
         const { resources } = await client.listResources();
         expect(resources.map((resource) => resource.uri)).toEqual(['nbg://rates/today']);
+
+        await client.close();
+    });
+
+    it('sends the instructions, short and leading with what the server is for', async () => {
+        const client = await connectedClient();
+
+        const instructions = client.getInstructions();
+        expect(instructions).toBe(
+            'Official exchange rates of the Georgian lari (GEL) set by the National Bank of Georgia (NBG). ' +
+                'Use these tools for any question about GEL rates, converting to or from GEL, or historical NBG rates ' +
+                'on a date or over a range. Dates are Tbilisi calendar days; quote effectiveDate when carriedOver is true.',
+        );
+        expect(instructions?.length).toBeLessThan(400);
+
+        await client.close();
+    });
+
+    it('identifies itself with the title, description and website of server.json', async () => {
+        const client = await connectedClient();
+        const registryEntry = z
+            .object({ title: z.string(), description: z.string(), websiteUrl: z.string() })
+            .parse(JSON.parse(readFileSync(new URL('../../server.json', import.meta.url), 'utf8')));
+
+        expect(client.getServerVersion()).toEqual({
+            name: 'nbg-rates-mcp',
+            version: '0.0.0-test',
+            title: registryEntry.title,
+            description: registryEntry.description,
+            websiteUrl: registryEntry.websiteUrl,
+        });
 
         await client.close();
     });

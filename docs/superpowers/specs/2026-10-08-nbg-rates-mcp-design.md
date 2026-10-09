@@ -144,6 +144,11 @@ serialised once without indentation; the SDK does not add the text block
 itself. `language` affects only the `name` field; codes, numbers and dates
 are identical in `en` and `ka`.
 
+The server sends instructions and display identity fields (`title`,
+`description`, `websiteUrl`) to every client; their exact values, and the
+rule that the identity fields equal `server.json`, are in
+`2026-10-09-context-efficiency-design.md`.
+
 Common output fields:
 
 - `requestedDate`: the calendar date the caller asked for (or today in

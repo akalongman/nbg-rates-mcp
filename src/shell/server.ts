@@ -124,8 +124,24 @@ function snapshotOutput(snapshot: RatesSnapshot, malformedCodes: ReadonlyArray<s
     };
 }
 
+/** Sent once per session; a client that loads tools on demand reads it to decide when this server is relevant. */
+export const SERVER_INSTRUCTIONS =
+    'Official exchange rates of the Georgian lari (GEL) set by the National Bank of Georgia (NBG). ' +
+    'Use these tools for any question about GEL rates, converting to or from GEL, or historical NBG rates ' +
+    'on a date or over a range. Dates are Tbilisi calendar days; quote effectiveDate when carriedOver is true.';
+
+/** Display fields of the server identity; a test keeps them equal to server.json. */
+const SERVER_IDENTITY = {
+    title: 'NBG Rates (National Bank of Georgia)',
+    description: 'GEL exchange rates from the National Bank of Georgia with per-unit values. Not affiliated with NBG.',
+    websiteUrl: 'https://github.com/akalongman/nbg-rates-mcp',
+} as const;
+
 export function createServer(deps: ServerDeps): McpServer {
-    const server = new McpServer({ name: 'nbg-rates-mcp', version: deps.version });
+    const server = new McpServer(
+        { name: 'nbg-rates-mcp', version: deps.version, ...SERVER_IDENTITY },
+        { instructions: SERVER_INSTRUCTIONS },
+    );
 
     server.registerTool(
         'nbg_get_rates',

@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as z from 'zod';
+import { SERVER_INSTRUCTIONS } from '../../src/shell/server.js';
 import {
     convertOutput,
     getRatesOutput,
@@ -58,6 +59,18 @@ describe('nbg-rates-mcp over stdio', () => {
             'nbg_list_currencies',
             'nbg_rate_history',
         ]);
+    });
+
+    it('sends the instructions and the display identity', () => {
+        expect(client.getInstructions()).toBe(SERVER_INSTRUCTIONS);
+        expect(client.getServerVersion()).toMatchObject({
+            name: 'nbg-rates-mcp',
+            version,
+            title: 'NBG Rates (National Bank of Georgia)',
+            description:
+                'GEL exchange rates from the National Bank of Georgia with per-unit values. Not affiliated with NBG.',
+            websiteUrl: 'https://github.com/akalongman/nbg-rates-mcp',
+        });
     });
 
     it('answers a Sunday with the carried-over Saturday rate, per unit, even in a US time zone', async () => {
