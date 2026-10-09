@@ -171,7 +171,24 @@ Inputs:
 Output:
 
 - `currency`, `from`, `to`: the request, with the code in upper case.
-- `days`: one entry per calendar day with `date`, `effectiveDate`, `rate` (GEL per one unit) and `carriedOver`, with the same meaning as in `nbg_get_rates`.
+- `days`: one entry per calendar day. A day whose own rate is in force is `{ date, rate }`, with `rate` in GEL per one unit. A carried-over day adds `effectiveDate`, the day its rate took effect, and `carriedOver: true`; an absent `effectiveDate` means the rate took effect on `date` itself. A full year stays near 6,000 tokens.
+
+For example, USD from Friday 2026-10-02 to Tuesday 2026-10-06 (Saturday has its own rate; Sunday and Monday carry it):
+
+```json
+{
+  "currency": "USD",
+  "from": "2026-10-02",
+  "to": "2026-10-06",
+  "days": [
+    { "date": "2026-10-02", "rate": 2.6042 },
+    { "date": "2026-10-03", "rate": 2.6039 },
+    { "date": "2026-10-04", "rate": 2.6039, "effectiveDate": "2026-10-03", "carriedOver": true },
+    { "date": "2026-10-05", "rate": 2.6039, "effectiveDate": "2026-10-03", "carriedOver": true },
+    { "date": "2026-10-06", "rate": 2.6032 }
+  ]
+}
+```
 
 A range that reaches a date NBG has not published yet is an error, as is a day in the range for which NBG's export has no rate of the currency (for example before NBG first quoted it, or after NBG stopped).
 

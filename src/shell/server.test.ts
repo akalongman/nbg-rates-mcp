@@ -178,6 +178,34 @@ describe('createServer', () => {
         await client.close();
     });
 
+    it('declares the compact history day: date and rate required, carriedOver only as the constant true', async () => {
+        const client = await connectedClient();
+        const { tools } = await client.listTools();
+        const history = tools.find((tool) => tool.name === 'nbg_rate_history');
+
+        const daySchema = z
+            .object({
+                properties: z.object({
+                    days: z.object({
+                        items: z.object({
+                            properties: z.record(z.string(), z.unknown()),
+                            required: z.array(z.string()),
+                        }),
+                    }),
+                }),
+            })
+            .parse(history?.outputSchema).properties.days.items;
+        expect([...daySchema.required].sort()).toEqual(['date', 'rate']);
+        expect(daySchema.properties['carriedOver']).toMatchObject({ type: 'boolean', const: true });
+        expect(daySchema.properties['effectiveDate']).toMatchObject({ type: 'string' });
+        expect(history?.description).toContain(
+            'Days whose own rate is in force carry only date and rate; a carried-over day adds effectiveDate and ' +
+                'carriedOver: true.',
+        );
+
+        await client.close();
+    });
+
     it('returns an isError result with the error sentence for an impossible date', async () => {
         const client = await connectedClient();
         const result = await client.callTool({ name: 'nbg_get_rates', arguments: { date: '2026-02-30' } });

@@ -253,8 +253,10 @@ today's: NBG quoted other currencies in the past.
 Input: `currency`, `from`, `to` (inclusive ISO calendar dates).
 
 Output: `currency`, `from`, `to`, `days`: one entry per calendar day in
-order, `{ date, effectiveDate, rate, carriedOver }`. Every calendar day is
-included, carried-over days with `carriedOver` true, because the rate
+order. A day whose own publication is in force is `{ date, rate }`; a
+carried-over day is `{ date, rate, effectiveDate, carriedOver: true }`
+(since 0.2.0, see `2026-10-09-context-efficiency-design.md`). Every
+calendar day is included, because the rate
 applicable on a non-business day is a question the audience asks and a
 model filling gaps itself gets it wrong.
 
@@ -274,8 +276,9 @@ or a gap in NBG's filter such as AZN in 2006 and 2007) the day fails with
 `no_data_for_date` instead of repeating an older row. An export with no rows
 at all (a range before 1995-10-14) is `no_data_for_date` for `from`; an
 export with calendar rows but none for the currency is `unknown_currency`.
-The range is capped at 366 days per call, because each day costs about 35
-tokens of model context, not because of upstream cost.
+The range is capped at 366 days per call, so that a full year stays near
+6,000 tokens of model context, under the 10,000-token warning of Claude
+Code; the cap is not about upstream cost.
 
 ### Resource template `nbg://rates/{date}`
 

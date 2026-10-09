@@ -95,9 +95,15 @@ export const rateHistoryOutput = z.object({
     days: z.array(
         z.object({
             date: z.string(),
-            effectiveDate,
             rate: z.number().describe('GEL per ONE unit of the currency'),
-            carriedOver,
+            effectiveDate: z
+                .string()
+                .describe('Present only on carried-over days: the calendar date the rate took effect')
+                .optional(),
+            carriedOver: z
+                .literal(true)
+                .describe('Present, and true, only on days that carry a rate set earlier')
+                .optional(),
         }),
     ),
 });

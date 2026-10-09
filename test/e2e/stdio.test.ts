@@ -134,6 +134,13 @@ describe('nbg-rates-mcp over stdio', () => {
         expect(JSON.stringify(result.structuredContent)).not.toContain('diff');
         const output = rateHistoryOutput.parse(result.structuredContent);
         expect(output.days).toHaveLength(7);
+        const [block] = z.array(z.object({ type: z.literal('text'), text: z.string() })).parse(result.content);
+        expect(JSON.parse(block?.text ?? '')).toEqual(result.structuredContent);
+        const saturday = output.days.find((point) => point.date === '2026-10-03');
+        const sunday = output.days.find((point) => point.date === '2026-10-04');
+        expect(Object.keys(saturday ?? {})).toEqual(['date', 'rate']);
+        expect(Object.keys(sunday ?? {})).toEqual(['date', 'rate', 'effectiveDate', 'carriedOver']);
+        expect(sunday?.effectiveDate).toBe('2026-10-03');
         expect(output.days.filter((point) => point.carriedOver).map((point) => point.date)).toEqual([
             '2026-10-04',
             '2026-10-05',

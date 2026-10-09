@@ -10,6 +10,7 @@ import {
     type RatesSnapshot,
     type Result,
 } from '../core/types.js';
+import { historyOutput } from './history-output.js';
 import type { RatesService } from './rates-service.js';
 import {
     convertInput,
@@ -257,9 +258,9 @@ export function createServer(deps: ServerDeps): McpServer {
                 'Official NBG rate of one currency (GEL per one unit) in force on every calendar day of an inclusive range ' +
                 'of at most 366 days. Dates are calendar days in Tbilisi. Days without a rate of their own (Sundays, ' +
                 'Mondays and days after a public holiday; before September 2021 NBG set a rate for every calendar day) ' +
-                'carry the earlier rate with carriedOver true and effectiveDate set to the day it took effect. Quote ' +
-                'effectiveDate when carriedOver is true. A range reaching a date NBG has not published yet returns an ' +
-                'error. One NBG request per call.',
+                'carry the earlier rate. Days whose own rate is in force carry only date and rate; a carried-over day ' +
+                'adds effectiveDate and carriedOver: true. Quote effectiveDate when carriedOver is true. A range reaching ' +
+                'a date NBG has not published yet returns an error. One NBG request per call.',
             inputSchema: rateHistoryInput,
             outputSchema: rateHistoryOutput,
             annotations: READ_ONLY,
@@ -285,7 +286,7 @@ export function createServer(deps: ServerDeps): McpServer {
             if (!history.ok) {
                 return failure(history.error);
             }
-            return success({ ...history.value, days: history.value.days.map((point) => ({ ...point })) });
+            return success(historyOutput(history.value));
         },
     );
 
