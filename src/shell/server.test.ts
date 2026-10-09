@@ -10,6 +10,7 @@ import {
     ok,
     type CalendarDate,
     type CurrencyCode,
+    type HistoryPoint,
     type Language,
     type RatesError,
     type RatesSnapshot,
@@ -202,6 +203,44 @@ describe('createServer', () => {
             'Days whose own rate is in force carry only date and rate; a carried-over day adds effectiveDate and ' +
                 'carriedOver: true.',
         );
+
+        await client.close();
+    });
+
+    it('answers nbg_rate_history with compact days and the same JSON in its one text block', async () => {
+        function point(day: string, effective: string, rate: number): HistoryPoint {
+            return { date: date(day), effectiveDate: date(effective), rate, carriedOver: effective < day };
+        }
+        // USD 2026-10-02 (Friday) to 2026-10-06 (Tuesday), as NBG published it: Saturday has its own table.
+        const days = [
+            point('2026-10-02', '2026-10-02', 2.6042),
+            point('2026-10-03', '2026-10-03', 2.6039),
+            point('2026-10-04', '2026-10-03', 2.6039),
+            point('2026-10-05', '2026-10-03', 2.6039),
+            point('2026-10-06', '2026-10-06', 2.6032),
+        ];
+        const client = await connectedClient({
+            service: {
+                ...stubService,
+                getHistory: ({ currency, from, to }) => Promise.resolve(ok({ currency, from, to, days })),
+            },
+        });
+
+        const result = await client.callTool({
+            name: 'nbg_rate_history',
+            arguments: { currency: 'USD', from: '2026-10-02', to: '2026-10-06' },
+        });
+
+        const text =
+            '{"currency":"USD","from":"2026-10-02","to":"2026-10-06","days":[' +
+            '{"date":"2026-10-02","rate":2.6042},' +
+            '{"date":"2026-10-03","rate":2.6039},' +
+            '{"date":"2026-10-04","rate":2.6039,"effectiveDate":"2026-10-03","carriedOver":true},' +
+            '{"date":"2026-10-05","rate":2.6039,"effectiveDate":"2026-10-03","carriedOver":true},' +
+            '{"date":"2026-10-06","rate":2.6032}]}';
+        expect(result.isError).toBeFalsy();
+        expect(result.content).toEqual([{ type: 'text', text }]);
+        expect(result.structuredContent).toEqual(JSON.parse(text));
 
         await client.close();
     });

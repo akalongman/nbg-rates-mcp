@@ -134,13 +134,17 @@ describe('nbg-rates-mcp over stdio', () => {
         expect(JSON.stringify(result.structuredContent)).not.toContain('diff');
         const output = rateHistoryOutput.parse(result.structuredContent);
         expect(output.days).toHaveLength(7);
-        const [block] = z.array(z.object({ type: z.literal('text'), text: z.string() })).parse(result.content);
-        expect(JSON.parse(block?.text ?? '')).toEqual(result.structuredContent);
-        const saturday = output.days.find((point) => point.date === '2026-10-03');
-        const sunday = output.days.find((point) => point.date === '2026-10-04');
+        // Exactly one text block, holding the same JSON key for key; a second copy would double the context cost.
+        expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.structuredContent) }]);
+        // Keys as they came over the wire: the parse above rewrites them into schema order.
+        const wireDays = z
+            .object({ days: z.array(z.record(z.string(), z.unknown())) })
+            .parse(result.structuredContent).days;
+        const saturday = wireDays.find((day) => day['date'] === '2026-10-03');
+        const sunday = wireDays.find((day) => day['date'] === '2026-10-04');
         expect(Object.keys(saturday ?? {})).toEqual(['date', 'rate']);
         expect(Object.keys(sunday ?? {})).toEqual(['date', 'rate', 'effectiveDate', 'carriedOver']);
-        expect(sunday?.effectiveDate).toBe('2026-10-03');
+        expect(sunday?.['effectiveDate']).toBe('2026-10-03');
         expect(output.days.filter((point) => point.carriedOver).map((point) => point.date)).toEqual([
             '2026-10-04',
             '2026-10-05',

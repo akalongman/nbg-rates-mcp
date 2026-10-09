@@ -372,6 +372,10 @@ float arithmetic and documented as unrounded.
   again. `getHistory` checks the range, makes one `fetchRange` call for the
   currency and USD, and hands the rows to core.
 - `tool-schemas.ts`: the Zod input and output schemas of the four tools.
+- `history-output.ts`: turns core history points into the compact wire
+  form of `nbg_rate_history` (since 0.2.0): `{ date, rate }` on a day whose
+  own publication is in force, and `effectiveDate` plus `carriedOver: true`
+  added on a carried-over day.
 - `server.ts`: builds the `McpServer`, registers the four tools and the
   resource template, maps core errors to MCP tool errors. Uses the v2
   factory style (`serveStdio(createServer)`) so each connection gets a fresh
@@ -485,7 +489,10 @@ Vitest, tests co-located as `*.test.ts`.
   2025-12-31 and fails for 2026-01-01; a one-year history through the
   service returns 366 days in one request. No exact rate values.
 
-Not tested: exact rate values, NBG uptime, tool description prose.
+Not tested: exact rate values, NBG uptime, tool description prose. Two
+exceptions since 0.2.0: the server instructions are tested word for word,
+and the `nbg_rate_history` description is tested for its sentence on the
+compact day shape.
 
 ## CI and release
 
