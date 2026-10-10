@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The format follows Keep a Changelog, and the project uses semantic versioning.
 
-## 0.3.0 - 2026-10-09
+## 0.3.0 - 2026-10-10
 
 Added: four prompts (today's rates, rate on a date, convert an amount, rates table for a month), shown by clients such as Claude Desktop as ready-made questions; an icon and a long description in the Claude Desktop bundle.
 
