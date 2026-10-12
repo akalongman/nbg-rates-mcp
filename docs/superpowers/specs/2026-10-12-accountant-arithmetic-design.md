@@ -95,12 +95,19 @@ time of the call). `rejectBeyondTomorrow` and `requirePublished` fill it.
 Message:
 
 > NBG has not published a rate for 2026-10-31 yet. Today in Tbilisi is
-> 2026-10-12; the latest date that can have a rate is 2026-10-13, after
-> about 17:00 Tbilisi time. [The latest published rate is valid from
-> 2026-10-12.] For a range, end it at today.
+> 2026-10-12; the furthest date that can have a rate is tomorrow,
+> 2026-10-13, and only once NBG has published it. NBG sets rates on
+> business days around 17:00 Tbilisi time, valid from the next calendar
+> day. A Sunday, a Monday or the day after a public holiday gets no table
+> of its own and carries the last one once it is today. [The latest
+> published rate is valid from 2026-10-12.] For a range, end it at today.
 
 The bracketed sentence appears when `latestEffectiveDate` is known, as
-today. `PUBLICATION_RULE` stays in the text.
+today. The sentence starting "NBG sets rates" is `PUBLICATION_RULE`, and a
+test pins it. (Reworded after the final review of 2026-10-12: the earlier
+"after about 17:00" promised a Saturday asker that Sunday's rate would
+appear that evening, which it never does; a day without a table of its own
+becomes answerable only when it is today.)
 
 ### Prompts
 
@@ -157,11 +164,16 @@ New pure module `src/core/decimal.ts`:
   schemas already reject those.
 - `roundHalfUp(value: Rational, decimals: number): number`: exact round
   half up, away from zero for negatives, returned as a number. For
-  `decimals` 2 the result has at most two decimals and is exactly
-  representable as a short decimal string, so it reaches the model as
-  `26.01`, never `26.009999999999998`.
-- `formatDecimals(value: number): number`: the number of decimals in the
-  shortest representation (0 for 26, 4 for 2.6005, 7 for 0.0071783).
+  `decimals` 2 the result has at most two decimals and, up to 2^53 in the
+  scaled integer (about 9e13 in the target currency), is exactly the
+  rounded decimal, so it reaches the model as `26.01`, never
+  `26.009999999999998`; above that bound it is the nearest double, and the
+  JSDoc and the `resultRounded` description say so (qualified after the
+  final review of 2026-10-12).
+- `perUnitDecimals(quantity)` in `normalize.ts` (4 + log10 of the
+  quantity) is the one place the per-unit precision is defined; `perUnit`
+  and the history summary both use it. An earlier `formatDecimals` helper
+  was removed when the Task 4 ruling made it unnecessary.
 
 `convert.ts` builds the conversion as one rational:
 
@@ -177,9 +189,11 @@ The identity case in `server.ts` (GEL to GEL) sets
 `resultRounded = roundHalfUp(decimalToRational(amount), 2)`.
 
 `Conversion` and `convertOutput` gain `resultRounded: number`, described
-as "result rounded half up to 2 decimals, computed exactly; the amount to
-show". JSON carries no trailing zeros, so 3.90 arrives as `3.9`; the
-description says so, and the prompts ask for two decimals in the answer.
+as "result rounded half up to 2 decimals from the exact value; the amount
+to show. JSON drops trailing zeros, so 3.90 arrives as 3.9. Exact up to
+about 9e13 in the target currency; above that the nearest double." The
+prompts ask for two decimals in the answer. (Quote aligned to the shipped
+text after the final review of 2026-10-12.)
 
 Worked example, 2026-10-10 (USD 2.6005 per 1, JPY 1.6452 per 100):
 
@@ -313,7 +327,13 @@ Description:
 > own date: one call for a list of invoices. Items are answered
 > independently; a bad date or code fails only its item, with the error
 > text in that item. total is present when every converted item has the
-> same target currency. Show resultRounded as the amounts. [DATE_RULES]
+> same target currency and covers the converted items only; call it
+> partial when skipped is not 0. Once NBG stops answering, the remaining
+> dates fail with the same error without being asked. [AMOUNT_RULE]
+> [DATE_RULES]
+
+(The quote was aligned to the shipped text after the final review of
+2026-10-12; `AMOUNT_RULE` is the sentence Change 1 quotes.)
 
 ### Behaviour
 
@@ -385,4 +405,9 @@ returns within the client's timeout with the items that did convert.
   the table would be maintained by hand. Every `resultRounded` has two
   decimals.
 - A published-days average alongside the calendar-day one.
+- A batch deadline: 100 distinct dates against an upstream that answers
+  each in 9 seconds run about 15 minutes, within the sequential design.
+- Distinguishing an outage from a per-date `upstream_unavailable` (a 4xx
+  or a non-JSON body for one date): the first such error stops the batch's
+  remaining requests either way, a deliberate simplification.
 - A hosted HTTP endpoint, a Georgian README, install screenshots.
