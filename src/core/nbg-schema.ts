@@ -6,9 +6,12 @@ export function isPowerOfTen(value: number): boolean {
     return Number.isInteger(value) && /^10*$/.test(String(value));
 }
 
-/** The units NBG quotes a rate for, 1 to 10000; a larger power of ten is a shape change, not a rate. */
+/**
+ * The units NBG quotes a rate for: a power of ten up to 1e15. NBG uses 1 to 10000; the headroom keeps a new
+ * per-100000 quote from failing a whole table, and the bound keeps the quantity a safe integer for fromInteger.
+ */
 export function isNbgQuantity(value: number): boolean {
-    return isPowerOfTen(value) && value <= 10_000;
+    return isPowerOfTen(value) && value <= 1e15;
 }
 
 /** Every NBG rate and diff since 1995 has at most four decimals; per-unit rounding relies on it. */
@@ -26,7 +29,7 @@ const fourDecimals = 'more than four decimals';
 
 const nbgCurrencyRowSchema = z.looseObject({
     code: z.string().regex(/^[A-Z]{3}$/),
-    quantity: z.number().refine(isNbgQuantity, 'quantity is not a power of ten up to 10000'),
+    quantity: z.number().refine(isNbgQuantity, 'quantity is not a power of ten up to 1e15'),
     rate: z.number().positive().refine(hasAtMostFourDecimals, fourDecimals),
     diff: z.number().refine(hasAtMostFourDecimals, fourDecimals),
     name: z.string(),

@@ -106,7 +106,7 @@ export const convertOutput = z.object({
         .describe(
             'result rounded half up to 2 decimals from the exact value; the amount to show. ' +
                 'JSON drops trailing zeros, so 3.90 arrives as 3.9. ' +
-                'Exact up to about 9e13 in the target currency; above that the nearest double.',
+                'Exact up to about 7e13 in the target currency; above that the nearest double.',
         ),
     rate: z.number().describe('One unit of "from" expressed in "to"'),
     via: z.enum(['direct', 'GEL']),

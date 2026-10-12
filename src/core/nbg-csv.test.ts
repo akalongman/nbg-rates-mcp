@@ -41,6 +41,11 @@ describe('parseNbgCsv', () => {
         expect(parseNbgCsv(text.replaceAll('\n', '\r\n')).ok).toBe(true);
     });
 
+    it('accepts a quantity NBG has not quoted yet, such as 100000', () => {
+        const text = `${NBG_CSV_HEADER}\nIRR,100000,0.6152,0.0003,x,10/2/2026,10/3/2026\n`;
+        expect(parseNbgCsv(text)).toMatchObject({ ok: true, value: [{ code: 'IRR', quantity: 100000 }] });
+    });
+
     it('rejects a changed header', () => {
         expect(shapeDetail(`${BOM}Code,Quantity,Rate,Name,Date\r\n`)).toContain('header');
         expect(shapeDetail('')).toContain('header');
@@ -60,7 +65,7 @@ describe('parseNbgCsv', () => {
             'USD,1,2.6039,0.0003,x,2026-10-02,10/3/2026',
             'USD,1,2.6039,0.0003,x,10/2/2026,2/30/2026',
             'USD,3,2.6039,0.0003,x,10/2/2026,10/3/2026',
-            'USD,100000,2.6039,0.0003,x,10/2/2026,10/3/2026',
+            'USD,10000000000000000,2.6039,0.0003,x,10/2/2026,10/3/2026',
             'USD,1,2.60.39,0.0003,x,10/2/2026,10/3/2026',
             'usd,1,2.6039,0.0003,x,10/2/2026,10/3/2026',
             'USD,1,2.60391,0.0003,x,10/2/2026,10/3/2026',

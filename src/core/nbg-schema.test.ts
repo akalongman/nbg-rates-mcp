@@ -64,11 +64,15 @@ describe('parseNbgResponse', () => {
         }
     });
 
-    it('rejects a power of ten above 10000, the largest quantity NBG quotes, as a shape change', () => {
-        const result = parseNbgResponse(table([row({ quantity: 100000 })]));
+    it('accepts a power of ten NBG has not quoted yet, so a new per-100000 quote cannot fail the whole table', () => {
+        expect(parseNbgResponse(table([row(), row({ code: 'IRR', quantity: 100000 })])).ok).toBe(true);
+    });
+
+    it('rejects a power of ten above 1e15, beyond the safe integers the exact arithmetic needs, as a shape change', () => {
+        const result = parseNbgResponse(table([row({ quantity: 1e16 })]));
         expect(result.ok === false && result.error.kind).toBe('upstream_shape_changed');
         if (!result.ok && result.error.kind === 'upstream_shape_changed') {
-            expect(result.error.detail).toContain('quantity is not a power of ten up to 10000');
+            expect(result.error.detail).toContain('quantity is not a power of ten up to 1e15');
         }
     });
 
@@ -142,9 +146,9 @@ describe('isPowerOfTen', () => {
 });
 
 describe('isNbgQuantity', () => {
-    it('accepts the powers of ten from 1 to 10000 and rejects larger ones', () => {
-        expect([1, 10, 100, 1000, 10000].every(isNbgQuantity)).toBe(true);
-        expect([100000, 1e16, 3, 0].some(isNbgQuantity)).toBe(false);
+    it('accepts the powers of ten from 1 to 1e15 and rejects larger ones', () => {
+        expect([1, 10, 100, 1000, 10000, 100000, 1e15].every(isNbgQuantity)).toBe(true);
+        expect([1e16, 1e20, 3, 0].some(isNbgQuantity)).toBe(false);
     });
 });
 
