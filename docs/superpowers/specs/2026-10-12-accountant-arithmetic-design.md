@@ -69,6 +69,13 @@ The descriptions of `nbg_convert` and `nbg_convert_many`, and
 > Show resultRounded as the amount; result is the unrounded value for
 > further calculation.
 
+`nbg_list_currencies` returns quantities but no rates, so it cannot show
+the quoted form itself; its description gets a shorter sentence instead
+of the display rule:
+
+> nbgQuantity is the unit count NBG quotes the raw rate for (JPY is quoted
+> as 1.6452 GEL per 100 JPY); for the rates themselves call nbg_get_rates.
+
 ### A distinct error for a value that is not a code
 
 New `RatesError` variant `invalid_currency_code: { value: string }`,
@@ -174,8 +181,9 @@ Worked example, 2026-10-10 (USD 2.6005 per 1, JPY 1.6452 per 100):
 ### Tests
 
 - Unit: `decimalToRational` on integers, decimals, negatives, exponent
-  notation; `roundHalfUp` on the ties above and on a tie at the third
-  decimal of a quotient (100 GEL to USD).
+  notation; `roundHalfUp` on the ties above and on an exact tie in a
+  quotient: 0.0130125 GEL at 2.6025 is exactly 0.005 USD, rounded to 0.01,
+  and -0.0130125 GEL to -0.01.
 - Property (fast-check), currency to GEL: for random amounts with up to
   6 decimals and random NBG-shaped rates (1 to 4 decimals, quantity a
   power of ten up to 10000), `resultRounded` equals an oracle that works
@@ -183,8 +191,13 @@ Worked example, 2026-10-10 (USD 2.6005 per 1, JPY 1.6452 per 100):
   counts, multiplied, then divided by the quantity and the scale with
   integer half-up rounding to two decimals. The oracle never touches a
   float or `decimal.ts`.
-- Property, every pair: `Math.abs(resultRounded - result) <= 0.005 + 1e-9`
-  and `resultRounded` has at most two decimals.
+- Property, `convertAmount` itself, currency to GEL: the same integer
+  oracle against a snapshot holding a generated quote.
+- Property, every pair: `Math.abs(resultRounded - result) <= 0.005 +
+  1e-14 * Math.abs(result)` and `resultRounded` has at most two decimals.
+  The relative term covers the float error of `result` (a few ulps for
+  at most three operations), which a fixed 1e-9 does not at amounts in
+  the billions.
 - Server: `nbg_convert` output carries `resultRounded`; the e2e test's
   fixture conversion asserts it.
 
@@ -237,6 +250,12 @@ Input:
 | --- | --- | --- |
 | `items` | yes | 1 to 100 entries of `{ amount, from, to, date? }`, each with the rules of `nbg_convert`. |
 
+The item schema checks shape only (a finite number and strings of at most
+64 characters); the date and code rules are applied per item by the
+handler. `nbg_convert` rejects `10.09.2026` or an empty code at its schema,
+which is fine for one call; in a batch the same input must cost only its
+item, with the same error text.
+
 Output:
 
 - `items`: one entry per input, in input order. A converted item is the
@@ -245,9 +264,13 @@ Output:
   the sentence `nbg_convert` would return for the same call.
 - `converted`, `skipped`: counts.
 - `total`: `{ to, resultRounded }`, present only when `converted` is at
-  least 1 and every converted item has the same `to`. `resultRounded` is
-  the sum of the items' `resultRounded` values, computed exactly, the way
-  a ledger sums posted lines. Absent when targets differ.
+  least 1, every converted item has the same `to`, and the sum is a finite
+  number. `resultRounded` is the sum of the items' `resultRounded` values,
+  computed exactly, the way a ledger sums posted lines: two lines of
+  26.025 post as 26.03 + 26.03 = 52.06, where rounding the summed 52.05
+  would give 52.05. Absent when targets differ. The description tells the
+  model that the total covers the converted items only and to call it
+  partial when `skipped` is not 0.
 
 Worked example: items 10 USD and 1.5 USD to GEL on 2026-10-10, and 100 USD
 to GEL on 2026-13-01.
@@ -287,16 +310,24 @@ Description:
   100 items, a non-numeric amount).
 
 Sequential fetching bounds the load on nbg.gov.ge: 100 items on 100
-distinct dates is 100 requests, about 15 seconds cold and well under a
-client's tool timeout; typical lists share a few dates and finish in
-under a second.
+distinct dates is 100 requests, about 15 seconds cold when NBG answers
+and well under a client's tool timeout; typical lists share a few dates
+and finish in under a second. When NBG does not answer, one date costs
+up to 20.5 seconds (two attempts with a 10-second timeout each), so the
+handler stops asking after the first `upstream_unavailable`: every date
+not yet fetched gets that same error without a request, and the call
+returns within the client's timeout with the items that did convert.
 
 ### Tests
 
 - Server (in-memory client): the worked example above against fixture
-  days; a list whose items span two dates makes exactly two upstream
-  requests; a date NBG has not published fails only its items; mixed
-  targets omit `total`; 101 items are rejected by the schema.
+  days, including a `10.09.2026` date and an empty code that fail only
+  their items; a list whose items span two dates makes exactly two
+  upstream requests; a date NBG has not published fails only its items;
+  after an `upstream_unavailable` the later dates are not requested; two
+  equal lines total to the sum of the rounded lines; mixed targets and a
+  non-finite sum omit `total`; 101 items are rejected by the schema and
+  100 are answered.
 - E2e: the built binary lists five tools and answers one batch.
 - Manifest: `manifest.json` `tools` gains the entry; the existing identity
   drift test is extended to assert the manifest's tool names equal the
