@@ -71,6 +71,17 @@ describe('PROMPTS', () => {
         }
     });
 
+    it("asks for NBG's quoted form in the two rate prompts and for two decimals in the conversion", () => {
+        const textOf = (name: string): string => PROMPTS.find((prompt) => prompt.name === name)?.text ?? '';
+        for (const name of ['nbg_rates_today', 'nbg_rate_on_date']) {
+            expect(textOf(name), name).toContain(
+                "NBG's quoted form when nbgQuantity is not 1 (for example 1.6452 GEL per 100 JPY), " +
+                    'the rate in GEL per one unit',
+            );
+        }
+        expect(textOf('nbg_convert_amount')).toContain('and the result as resultRounded with two decimals.');
+    });
+
     it('marks only the optional arguments optional', () => {
         const optional = PROMPTS.flatMap((prompt) =>
             prompt.arguments

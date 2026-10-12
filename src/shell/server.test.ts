@@ -796,6 +796,14 @@ describe('nbg_convert_many', () => {
         await client.close();
     });
 
+    it('tells the model a total that leaves out skipped items is partial', async () => {
+        const client = await connectedClient();
+        const { tools } = await client.listTools();
+        const description = tools.find((tool) => tool.name === 'nbg_convert_many')?.description ?? '';
+        expect(description).toContain('covers the converted items only; call it partial when skipped is not 0.');
+        await client.close();
+    });
+
     it('rejects an empty list and more than 100 items at the schema, and answers exactly 100', async () => {
         const { service, requests } = tableService();
         const client = await connectedClient({ service });

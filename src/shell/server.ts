@@ -311,8 +311,8 @@ export function createServer(deps: ServerDeps): McpServer {
                 'Converts a list of amounts, each at the official NBG rate in force on its own date: one call for a ' +
                 'list of invoices. Items are answered independently; a bad date or code fails only its item, with the ' +
                 'error text in that item. total is present when every converted item has the same target currency ' +
-                'and covers the converted items only. Once NBG stops answering, the remaining dates fail with the ' +
-                'same error without being asked. ' +
+                'and covers the converted items only; call it partial when skipped is not 0. Once NBG stops ' +
+                'answering, the remaining dates fail with the same error without being asked. ' +
                 AMOUNT_RULE +
                 ' ' +
                 DATE_RULES,

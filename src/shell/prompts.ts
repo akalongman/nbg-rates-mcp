@@ -33,9 +33,10 @@ export const PROMPTS: ReadonlyArray<PromptDefinition> = [
         ],
         text:
             "Give me today's official National Bank of Georgia rates for ${arguments.currencies} (USD, EUR, GBP and " +
-            'TRY when none are named) with nbg_get_rates. For each currency report the rate in GEL per one unit and ' +
-            'the change versus the previous rate, then the date the rates took effect and whether they are carried ' +
-            'over from an earlier day.',
+            "TRY when none are named) with nbg_get_rates. For each currency report NBG's quoted form when " +
+            'nbgQuantity is not 1 (for example 1.6452 GEL per 100 JPY), the rate in GEL per one unit and the change ' +
+            'versus the previous rate, then the date the rates took effect and whether they are carried over from an ' +
+            'earlier day.',
     },
     {
         name: 'nbg_rate_on_date',
@@ -47,8 +48,9 @@ export const PROMPTS: ReadonlyArray<PromptDefinition> = [
         ],
         text:
             'What was the official National Bank of Georgia rate of ${arguments.currency} in force on ' +
-            '${arguments.date}? Use nbg_get_rates. Report the rate in GEL per one unit, the date it took effect, and ' +
-            'whether it is carried over from an earlier day.',
+            "${arguments.date}? Use nbg_get_rates. Report NBG's quoted form when nbgQuantity is not 1 (for example " +
+            '1.6452 GEL per 100 JPY), the rate in GEL per one unit, the date it took effect, and whether it is ' +
+            'carried over from an earlier day.',
     },
     {
         name: 'nbg_convert_amount',
@@ -63,7 +65,7 @@ export const PROMPTS: ReadonlyArray<PromptDefinition> = [
         text:
             'Convert ${arguments.amount} ${arguments.from} to ${arguments.to} at the official National Bank of Georgia ' +
             'rate in force on ${arguments.date} (today when no date is given) with nbg_convert. Show the rate used, ' +
-            'the date it took effect, whether it is carried over, and the result as resultRounded.',
+            'the date it took effect, whether it is carried over, and the result as resultRounded with two decimals.',
     },
     {
         name: 'nbg_monthly_rates',
