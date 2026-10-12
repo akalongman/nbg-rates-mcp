@@ -24,7 +24,7 @@ export function toWebRequest(incoming: IncomingRequest): Request {
     const method = incoming.method.toUpperCase();
     const init: RequestInit = { method, headers: incoming.headers };
     if (incoming.body !== null && !BODYLESS_METHODS.has(method)) {
-        // A fresh copy: the Request constructor keeps the view, and a transport may reuse its buffer.
+        // A fresh copy, so the Request never shares a buffer the transport may reuse.
         init.body = new Uint8Array(incoming.body);
     }
     return new Request(incoming.url, init);

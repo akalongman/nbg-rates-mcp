@@ -18,7 +18,12 @@ describe('toWebRequest', () => {
     });
 
     it('builds a GET without a body even when the transport hands an empty one', () => {
-        const request = toWebRequest({ method: 'GET', url: 'https://nbg-rates.env.ge/', headers: {}, body: null });
+        const request = toWebRequest({
+            method: 'GET',
+            url: 'https://nbg-rates.env.ge/',
+            headers: {},
+            body: new Uint8Array(0),
+        });
         expect(request.method).toBe('GET');
         expect(request.body).toBeNull();
     });
