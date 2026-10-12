@@ -1,0 +1,28 @@
+{
+    "version": "2.0",
+    "routeKey": "$default",
+    "rawPath": "/mcp",
+    "rawQueryString": "",
+    "headers": {
+        "accept": "application/json, text/event-stream",
+        "content-type": "application/json",
+        "host": "nbg-rates.env.ge",
+        "user-agent": "fixture",
+        "x-forwarded-for": "203.0.113.5",
+        "x-forwarded-proto": "https"
+    },
+    "requestContext": {
+        "domainName": "nbg-rates.env.ge",
+        "http": {
+            "method": "POST",
+            "path": "/mcp",
+            "protocol": "HTTP/1.1",
+            "sourceIp": "203.0.113.5",
+            "userAgent": "fixture"
+        },
+        "requestId": "fixture-1",
+        "stage": "$default"
+    },
+    "body": "eyJqc29ucnBjIjoiMi4wIiwiaWQiOjEsIm1ldGhvZCI6ImluaXRpYWxpemUiLCJwYXJhbXMiOnsicHJvdG9jb2xWZXJzaW9uIjoiMjAyNS0wNi0xOCIsImNhcGFiaWxpdGllcyI6e30sImNsaWVudEluZm8iOnsibmFtZSI6ImZpeHR1cmUtY2xpZW50IiwidmVyc2lvbiI6IjEuMC4wIn19fQ==",
+    "isBase64Encoded": true
+}

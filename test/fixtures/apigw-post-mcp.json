@@ -1,0 +1,22 @@
+{
+    "version": "2.0",
+    "routeKey": "$default",
+    "rawPath": "/mcp",
+    "rawQueryString": "",
+    "headers": {
+        "accept": "application/json, text/event-stream",
+        "content-type": "application/json",
+        "host": "nbg-rates.env.ge",
+        "user-agent": "fixture",
+        "x-forwarded-for": "203.0.113.5",
+        "x-forwarded-proto": "https"
+    },
+    "requestContext": {
+        "domainName": "nbg-rates.env.ge",
+        "http": { "method": "POST", "path": "/mcp", "protocol": "HTTP/1.1", "sourceIp": "203.0.113.5", "userAgent": "fixture" },
+        "requestId": "fixture-1",
+        "stage": "$default"
+    },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"fixture-client\",\"version\":\"1.0.0\"}}}",
+    "isBase64Encoded": false
+}
