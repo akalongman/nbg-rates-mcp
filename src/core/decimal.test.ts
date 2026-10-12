@@ -4,7 +4,6 @@ import {
     add,
     decimalToRational,
     divide,
-    formatDecimals,
     fromInteger,
     multiply,
     roundHalfUp,
@@ -66,6 +65,11 @@ describe('roundHalfUp', () => {
         expect(roundHalfUp(divide(decimalToRational(-0.0130125), decimalToRational(2.6025)), 2)).toBe(-0.01);
     });
 
+    it('refuses a negative or fractional number of decimals with an error that says so', () => {
+        expect(() => roundHalfUp(decimalToRational(1), -1)).toThrow(/decimals/);
+        expect(() => roundHalfUp(decimalToRational(1), 1.5)).toThrow(/decimals/);
+    });
+
     it('returns a plain zero, never -0, when the value rounds to nothing', () => {
         const rounded = roundHalfUp(decimalToRational(-0.001), 2);
         expect(Object.is(rounded, 0)).toBe(true);
@@ -94,20 +98,16 @@ describe('roundHalfUp', () => {
                     const magnitude = product < 0n ? -product : product;
                     const cents = (magnitude * 200n + divisor) / (2n * divisor);
                     const expected = Number(cents) / 100;
-                    expect(roundHalfUp(exact, 2)).toBe(product < 0n && cents !== 0n ? -expected : expected);
+                    const rounded = roundHalfUp(exact, 2);
+                    expect(rounded).toBe(product < 0n && cents !== 0n ? -expected : expected);
+                    // The tie rule stated without the formula above: the floor, plus one when the remainder is half or
+                    // more. The results stay below 1e13, where toFixed(2) reads back the cents exactly.
+                    const floorValue = (magnitude * 100n) / divisor;
+                    const remainder = (magnitude * 100n) % divisor;
+                    const roundedCents = BigInt(Math.abs(rounded).toFixed(2).replace('.', ''));
+                    expect(roundedCents).toBe(floorValue + (2n * remainder >= divisor ? 1n : 0n));
                 },
             ),
         );
-    });
-});
-
-describe('formatDecimals', () => {
-    it('counts the decimals of the shortest representation', () => {
-        expect(formatDecimals(26)).toBe(0);
-        expect(formatDecimals(2.6005)).toBe(4);
-        expect(formatDecimals(2.604)).toBe(3);
-        expect(formatDecimals(0.0071783)).toBe(7);
-        expect(formatDecimals(1e-7)).toBe(7);
-        expect(formatDecimals(1e21)).toBe(0);
     });
 });

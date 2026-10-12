@@ -11,9 +11,16 @@ import {
     type Result,
 } from './types.js';
 
+/**
+ * Every NBG rate has four decimals, so a rate quoted per `quantity` units has this many per unit: 4 for USD, 7 for
+ * AMD.
+ */
+export function perUnitDecimals(quantity: number): number {
+    return 4 + Math.round(Math.log10(quantity));
+}
+
 export function perUnit(value: number, quantity: number): number {
-    const decimals = 4 + Math.round(Math.log10(quantity));
-    return Number((value / quantity).toFixed(decimals));
+    return Number((value / quantity).toFixed(perUnitDecimals(quantity)));
 }
 
 export function normalizeSnapshot(day: NbgDay, requestedDate: CalendarDate): RatesSnapshot {

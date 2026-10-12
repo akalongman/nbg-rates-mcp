@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadFixture } from '../../test/helpers/fixtures.js';
-import { hasAtMostFourDecimals, isPowerOfTen, parseNbgResponse } from './nbg-schema.js';
+import { hasAtMostFourDecimals, isNbgQuantity, isPowerOfTen, parseNbgResponse } from './nbg-schema.js';
 
 function row(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
@@ -61,6 +61,14 @@ describe('parseNbgResponse', () => {
             if (!result.ok) {
                 expect(result.error.kind).toBe('upstream_shape_changed');
             }
+        }
+    });
+
+    it('rejects a power of ten above 10000, the largest quantity NBG quotes, as a shape change', () => {
+        const result = parseNbgResponse(table([row({ quantity: 100000 })]));
+        expect(result.ok === false && result.error.kind).toBe('upstream_shape_changed');
+        if (!result.ok && result.error.kind === 'upstream_shape_changed') {
+            expect(result.error.detail).toContain('quantity is not a power of ten up to 10000');
         }
     });
 
@@ -130,6 +138,13 @@ describe('isPowerOfTen', () => {
     it('accepts 1 to 10000 and rejects everything else', () => {
         expect([1, 10, 100, 1000, 10000].every(isPowerOfTen)).toBe(true);
         expect([0, 2, 20, 0.1, -10, 1.5].some(isPowerOfTen)).toBe(false);
+    });
+});
+
+describe('isNbgQuantity', () => {
+    it('accepts the powers of ten from 1 to 10000 and rejects larger ones', () => {
+        expect([1, 10, 100, 1000, 10000].every(isNbgQuantity)).toBe(true);
+        expect([100000, 1e16, 3, 0].some(isNbgQuantity)).toBe(false);
     });
 });
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadFixture } from '../../test/helpers/fixtures.js';
 import { code, date } from '../../test/helpers/values.js';
 import { parseNbgResponse, type NbgDay } from './nbg-schema.js';
-import { normalizeSnapshot, perUnit, requirePublished, selectCurrencies } from './normalize.js';
+import { normalizeSnapshot, perUnit, perUnitDecimals, requirePublished, selectCurrencies } from './normalize.js';
 
 function day(fixture: string): NbgDay {
     const parsed = parseNbgResponse(loadFixture(fixture));
@@ -11,6 +11,14 @@ function day(fixture: string): NbgDay {
     }
     return parsed.value[0];
 }
+
+describe('perUnitDecimals', () => {
+    it('adds log10 of the quantity to the four decimals of an NBG rate', () => {
+        expect(perUnitDecimals(1)).toBe(4);
+        expect(perUnitDecimals(10)).toBe(5);
+        expect(perUnitDecimals(10000)).toBe(8);
+    });
+});
 
 describe('perUnit', () => {
     it('divides by the quantity and rounds to 4 + log10(quantity) decimals', () => {

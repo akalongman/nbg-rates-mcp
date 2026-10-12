@@ -32,7 +32,7 @@ describe('summarizeHistory', () => {
         });
     });
 
-    it('names the first day an extreme occurs on, and rounds at the most precise rate', () => {
+    it("names the first day an extreme occurs on, and rounds at the precision NBG's quantity gives", () => {
         const summary = summarizeHistory([
             point('2026-09-01', '2026-09-01', 0.00717, 1000),
             point('2026-09-02', '2026-09-02', 0.0071783, 1000),
@@ -43,6 +43,15 @@ describe('summarizeHistory', () => {
         // (0.00717 * 2 + 0.0071783 * 2) / 4 = 0.00717415, half up at seven decimals 0.0071742.
         expect(summary.average).toBe(0.0071742);
         expect(summary.change).toBe(0);
+    });
+
+    it('rounds a true tie half up, where half even would round it down', () => {
+        // USD 2.7000 and 2.7001: the mean 2.70005 is a tie at four decimals; half up 2.7001, half even 2.7000.
+        const summary = summarizeHistory([
+            point('2026-09-01', '2026-09-01', 2.7, 1),
+            point('2026-09-02', '2026-09-02', 2.7001, 1),
+        ]);
+        expect(summary.average).toBe(2.7001);
     });
 
     it('keeps the four decimals of a quantity-1 currency when every rate ends in zero', () => {

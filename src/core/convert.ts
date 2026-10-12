@@ -49,6 +49,9 @@ export function convertAmount(
     from: CurrencyCode,
     to: CurrencyCode,
 ): Result<Conversion, RatesError> {
+    if (!Number.isFinite(amount)) {
+        return err({ kind: 'result_out_of_range', amount, from, to });
+    }
     const fromQuote = quoteOf(snapshot, from);
     if (!fromQuote.ok) {
         return fromQuote;

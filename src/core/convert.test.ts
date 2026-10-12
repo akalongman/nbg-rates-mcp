@@ -96,6 +96,16 @@ describe('convertAmount', () => {
         }
     });
 
+    it('fails with result_out_of_range for a non-finite amount instead of throwing', () => {
+        // The tool schemas reject these; a direct caller still gets a Result.
+        for (const amount of [Number.POSITIVE_INFINITY, Number.NaN]) {
+            expect(convertAmount(snapshot, amount, code('USD'), GEL)).toEqual({
+                ok: false,
+                error: { kind: 'result_out_of_range', amount, from: 'USD', to: 'GEL' },
+            });
+        }
+    });
+
     it('property: converting there and back returns the amount within float tolerance', () => {
         const codes = [GEL, code('USD'), code('EUR'), code('AMD')];
         fc.assert(
@@ -117,8 +127,8 @@ describe('convertAmount', () => {
 
     it('rounds the exact product half up to two decimals, not the float', () => {
         // 1.5 * 2.6025 = 3.90375: below the half tetri, so 3.90 (which JSON carries as 3.9).
-        const tie = convertAmount(snapshot, 1.5, code('USD'), GEL);
-        expect(tie.ok && tie.value.resultRounded).toBe(3.9);
+        const belowHalf = convertAmount(snapshot, 1.5, code('USD'), GEL);
+        expect(belowHalf.ok && belowHalf.value.resultRounded).toBe(3.9);
         // 10 * 2.6025 = 26.025, a tie at the third decimal: half up gives 26.03, toFixed would give 26.02.
         const half = convertAmount(snapshot, 10, code('USD'), GEL);
         expect(half.ok && half.value.resultRounded).toBe(26.03);

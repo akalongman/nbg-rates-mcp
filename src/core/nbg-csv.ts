@@ -1,5 +1,5 @@
 import { parseCalendarDate } from './dates.js';
-import { isPowerOfTen } from './nbg-schema.js';
+import { isNbgQuantity } from './nbg-schema.js';
 import { err, ok, type CalendarDate, type RatesError, type Result } from './types.js';
 
 export const NBG_CSV_HEADER = 'Code,Quantity,Rate,Diff,Name,Date,ValidFromDate';
@@ -60,7 +60,7 @@ export function parseNbgCsv(text: string): Result<ReadonlyArray<NbgCsvRow>, Rate
         if (
             !CODE.test(code) ||
             !INTEGER.test(quantityField) ||
-            !isPowerOfTen(quantity) ||
+            !isNbgQuantity(quantity) ||
             !RATE.test(rateField) ||
             Number(rateField) <= 0 ||
             publishedOn === undefined ||

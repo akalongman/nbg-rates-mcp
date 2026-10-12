@@ -1,4 +1,5 @@
 import { add, decimalToRational, divide, fromInteger, roundHalfUp, subtract } from './decimal.js';
+import { perUnitDecimals } from './normalize.js';
 import type { CalendarDate, HistoryPoint } from './types.js';
 
 export interface HistorySummary {
@@ -42,7 +43,7 @@ export function summarizeHistory(days: ReadonlyArray<HistoryPoint>): HistorySumm
         if (day.rate > max.rate) {
             max = day;
         }
-        decimals = Math.max(decimals, 4 + Math.round(Math.log10(day.nbgQuantity)));
+        decimals = Math.max(decimals, perUnitDecimals(day.nbgQuantity));
         sum = add(sum, decimalToRational(day.rate));
     }
     return {

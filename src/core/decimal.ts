@@ -26,7 +26,8 @@ function reduced(numerator: bigint, denominator: bigint): Rational {
         throw new Error('division by zero');
     }
     const sign = denominator < 0n ? -1n : 1n;
-    const divisor = gcd(numerator, denominator) || 1n;
+    // Never 0: a gcd divides the denominator, which is not 0 here.
+    const divisor = gcd(numerator, denominator);
     return { numerator: (sign * numerator) / divisor, denominator: (sign * denominator) / divisor };
 }
 
@@ -75,6 +76,9 @@ export function divide(a: Rational, b: Rational): Rational {
 
 /** Half up, away from zero: 26.005 to 26.01 and -26.005 to -26.01. A value that rounds to nothing is 0, never -0. */
 export function roundHalfUp(value: Rational, decimals: number): number {
+    if (!Number.isInteger(decimals) || decimals < 0) {
+        throw new Error(`decimals must be a non-negative integer, got ${decimals}`);
+    }
     const scale = 10n ** BigInt(decimals);
     const negative = value.numerator < 0n;
     const magnitude = negative ? -value.numerator : value.numerator;
@@ -87,9 +91,4 @@ export function roundHalfUp(value: Rational, decimals: number): number {
     const fraction = digits.slice(digits.length - decimals);
     const text = decimals === 0 ? integer : `${integer}.${fraction}`;
     return Number(negative ? `-${text}` : text);
-}
-
-/** Decimals in the shortest representation: 0 for 26, 4 for 2.6005, 7 for 0.0071783 and for 1e-7. */
-export function formatDecimals(value: number): number {
-    return Math.max(0, parts(value).scale);
 }
