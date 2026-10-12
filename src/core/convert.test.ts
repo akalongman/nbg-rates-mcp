@@ -84,6 +84,18 @@ describe('convertAmount', () => {
         }
     });
 
+    it('fails with result_out_of_range when only the exact rounded result overflows, either sign', () => {
+        // 6.14322911137722e307 EUR at 2.9263 is a hair above the largest double: the float product rounds down
+        // to Number.MAX_VALUE, while the exact product rounded to two decimals does not fit a double.
+        for (const amount of [6.14322911137722e307, -6.14322911137722e307]) {
+            expect(Number.isFinite(amount * 2.9263)).toBe(true);
+            expect(convertAmount(snapshot, amount, code('EUR'), GEL)).toEqual({
+                ok: false,
+                error: { kind: 'result_out_of_range', amount, from: 'EUR', to: 'GEL' },
+            });
+        }
+    });
+
     it('property: converting there and back returns the amount within float tolerance', () => {
         const codes = [GEL, code('USD'), code('EUR'), code('AMD')];
         fc.assert(

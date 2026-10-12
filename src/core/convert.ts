@@ -61,12 +61,13 @@ export function convertAmount(
     const rate = identical ? 1 : fromQuote.value.rate / toQuote.value.rate;
     const via: Conversion['via'] = identical || from === GEL || to === GEL ? 'direct' : 'GEL';
     const result = identical ? amount : amount * rate;
-    if (!Number.isFinite(result)) {
-        return err({ kind: 'result_out_of_range', amount, from, to });
-    }
     const resultRounded = identical
         ? roundedAmount(amount)
         : roundHalfUp(exactResult(amount, fromQuote.value, toQuote.value), 2);
+    // The float result can round down to Number.MAX_VALUE while the exact value rounds to Infinity.
+    if (!Number.isFinite(result) || !Number.isFinite(resultRounded)) {
+        return err({ kind: 'result_out_of_range', amount, from, to });
+    }
     return ok({
         amount,
         from,

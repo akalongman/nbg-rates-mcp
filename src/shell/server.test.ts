@@ -54,6 +54,9 @@ const TABLE: RatesSnapshot = {
     unknownCodes: [],
 };
 
+/** EUR whose float product with TABLE's 2.9263 rounds down to Number.MAX_VALUE; the exact product does not fit. */
+const EXACT_OVERFLOW_EUR = 6.14322911137722e307;
+
 interface SnapshotRequest {
     readonly date: CalendarDate;
     readonly language: Language;
@@ -503,6 +506,33 @@ describe('createServer', () => {
         await client.close();
     });
 
+    it('rejects a conversion whose exact rounded result overflows although the float result fits', async () => {
+        const { service } = tableService();
+        const client = await connectedClient({ service });
+        // The unrounded result is Number.MAX_VALUE, so only resultRounded would be Infinity.
+        expect(Number.isFinite(EXACT_OVERFLOW_EUR * 2.9263)).toBe(true);
+
+        const result = await client.callTool({
+            name: 'nbg_convert',
+            arguments: { amount: EXACT_OVERFLOW_EUR, from: 'EUR', to: 'GEL', date: '2026-10-07' },
+        });
+
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toBeUndefined();
+        expect(result.content).toEqual([
+            {
+                type: 'text',
+                text: describeError({
+                    kind: 'result_out_of_range',
+                    amount: EXACT_OVERFLOW_EUR,
+                    from: code('EUR'),
+                    to: code('GEL'),
+                }),
+            },
+        ]);
+        await client.close();
+    });
+
     it('tells the model a word is not a code instead of sending it to the currency list', async () => {
         const client = await connectedClient();
         const result = await client.callTool({
@@ -765,6 +795,38 @@ describe('nbg_convert_many', () => {
         expect(result.isError).toBeFalsy();
         expect(result.structuredContent).toMatchObject({ converted: 2, skipped: 0 });
         expect(result.structuredContent).not.toHaveProperty('total');
+        await client.close();
+    });
+
+    it('fails only the item whose exact rounded result overflows and totals the others', async () => {
+        const { service } = tableService();
+        const client = await connectedClient({ service });
+        expect(Number.isFinite(EXACT_OVERFLOW_EUR * 2.9263)).toBe(true);
+
+        const result = await client.callTool({
+            name: 'nbg_convert_many',
+            arguments: {
+                items: [
+                    { amount: 10, from: 'USD', to: 'GEL', date: '2026-10-07' },
+                    { amount: EXACT_OVERFLOW_EUR, from: 'EUR', to: 'GEL', date: '2026-10-07' },
+                    { amount: 1, from: 'EUR', to: 'GEL', date: '2026-10-07' },
+                ],
+            },
+        });
+
+        expect(result.isError, JSON.stringify(result.content)).toBeFalsy();
+        const output = convertManyOutput.parse(result.structuredContent);
+        expect(output.items.map((item) => ('error' in item ? item.error : item.resultRounded))).toEqual([
+            26.03,
+            describeError({
+                kind: 'result_out_of_range',
+                amount: EXACT_OVERFLOW_EUR,
+                from: code('EUR'),
+                to: code('GEL'),
+            }),
+            2.93,
+        ]);
+        expect(output).toMatchObject({ converted: 2, skipped: 1, total: { to: 'GEL', resultRounded: 28.96 } });
         await client.close();
     });
 
