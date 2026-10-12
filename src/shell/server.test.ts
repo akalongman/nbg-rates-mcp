@@ -18,7 +18,7 @@ import {
 import { PROMPTS, renderPrompt } from './prompts.js';
 import type { RatesService } from './rates-service.js';
 import { createServer, describeError } from './server.js';
-import { getRatesOutput } from './tool-schemas.js';
+import { convertManyOutput, getRatesOutput } from './tool-schemas.js';
 
 const stubService: RatesService = {
     getSnapshot: () =>
@@ -144,12 +144,13 @@ describe('describeError', () => {
 });
 
 describe('createServer', () => {
-    it('registers the four nbg_ tools and the rates resource', async () => {
+    it('registers the five nbg_ tools and the rates resource', async () => {
         const client = await connectedClient();
 
         const { tools } = await client.listTools();
         expect(tools.map((tool) => tool.name).sort()).toEqual([
             'nbg_convert',
+            'nbg_convert_many',
             'nbg_get_rates',
             'nbg_list_currencies',
             'nbg_rate_history',
@@ -205,13 +206,19 @@ describe('createServer', () => {
         const client = await connectedClient();
         // Claude Desktop shows the .mcpb manifest, not the identity the server sends, so the two must not drift.
         const manifest = z
-            .object({ display_name: z.string(), description: z.string() })
+            .object({
+                display_name: z.string(),
+                description: z.string(),
+                tools: z.array(z.object({ name: z.string() })),
+            })
             .parse(JSON.parse(readFileSync(new URL('../../manifest.json', import.meta.url), 'utf8')));
 
         expect({ title: manifest.display_name, description: manifest.description }).toEqual({
             title: client.getServerVersion()?.title,
             description: client.getServerVersion()?.description,
         });
+        const { tools } = await client.listTools();
+        expect(manifest.tools.map((tool) => tool.name).sort()).toEqual(tools.map((tool) => tool.name).sort());
 
         await client.close();
     });
@@ -519,6 +526,277 @@ describe('createServer', () => {
             '2026-10-08',
             '2026-10-08',
         ]);
+        await client.close();
+    });
+});
+
+describe('nbg_convert_many', () => {
+    it('answers every item, fails only the bad ones, and totals the rounded amounts of one target', async () => {
+        const { service, requests } = tableService();
+        const client = await connectedClient({ service });
+
+        const result = await client.callTool({
+            name: 'nbg_convert_many',
+            arguments: {
+                items: [
+                    { amount: 10, from: 'USD', to: 'GEL', date: '2026-10-07' },
+                    { amount: 1.5, from: 'usd', to: 'gel', date: '2026-10-07' },
+                    { amount: 100, from: 'USD', to: 'GEL', date: '2026-13-01' },
+                    { amount: 7, from: 'dollar', to: 'GEL', date: '2026-10-07' },
+                    { amount: 1, from: 'XXX', to: 'GEL', date: '2026-10-07' },
+                    // Inputs the single tool's schema would reject outright must fail only their own item here.
+                    { amount: 8, from: 'Armenian dram', to: 'GEL', date: '10.09.2026' },
+                    { amount: 9, from: '', to: 'GEL', date: '2026-10-07' },
+                ],
+            },
+        });
+
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({
+            items: [
+                {
+                    amount: 10,
+                    from: 'USD',
+                    to: 'GEL',
+                    result: 10 * 2.6025,
+                    resultRounded: 26.03,
+                    rate: 2.6025,
+                    via: 'direct',
+                    requestedDate: '2026-10-07',
+                    effectiveDate: '2026-10-07',
+                    carriedOver: false,
+                },
+                {
+                    amount: 1.5,
+                    from: 'USD',
+                    to: 'GEL',
+                    result: 1.5 * 2.6025,
+                    resultRounded: 3.9,
+                    rate: 2.6025,
+                    via: 'direct',
+                    requestedDate: '2026-10-07',
+                    effectiveDate: '2026-10-07',
+                    carriedOver: false,
+                },
+                {
+                    amount: 100,
+                    from: 'USD',
+                    to: 'GEL',
+                    date: '2026-13-01',
+                    error: describeError({
+                        kind: 'invalid_date',
+                        value: '2026-13-01',
+                        reason: 'not a real calendar date',
+                    }),
+                },
+                {
+                    amount: 7,
+                    from: 'dollar',
+                    to: 'GEL',
+                    date: '2026-10-07',
+                    error: describeError({ kind: 'invalid_currency_code', value: 'dollar' }),
+                },
+                {
+                    amount: 1,
+                    from: 'XXX',
+                    to: 'GEL',
+                    date: '2026-10-07',
+                    error: describeError({ kind: 'unknown_currency', code: 'XXX' }),
+                },
+                {
+                    amount: 8,
+                    from: 'Armenian dram',
+                    to: 'GEL',
+                    date: '10.09.2026',
+                    error: describeError({ kind: 'invalid_date', value: '10.09.2026', reason: 'expected YYYY-MM-DD' }),
+                },
+                {
+                    amount: 9,
+                    from: '',
+                    to: 'GEL',
+                    date: '2026-10-07',
+                    error: describeError({ kind: 'invalid_currency_code', value: '' }),
+                },
+            ],
+            converted: 2,
+            skipped: 5,
+            total: { to: 'GEL', resultRounded: 29.93 },
+        });
+        // One service call for the one distinct date, although three items reached the rate lookup.
+        expect(requests.map((request) => request.date)).toEqual(['2026-10-07']);
+        expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.structuredContent) }]);
+        await client.close();
+    });
+
+    it('asks the service once per distinct date and fails only the items of a date NBG has not published', async () => {
+        const { service: table, requests } = tableService();
+        const service: RatesService = {
+            getSnapshot(args) {
+                if (args.date === '2026-10-09') {
+                    requests.push({ date: args.date, language: args.language, codes: args.codes });
+                    return Promise.resolve(
+                        err({
+                            kind: 'rate_not_published',
+                            date: args.date,
+                            latestEffectiveDate: date('2026-10-08'),
+                            today: date('2026-10-08'),
+                        }),
+                    );
+                }
+                return table.getSnapshot(args);
+            },
+            // An arrow, not the method itself: @typescript-eslint/unbound-method rejects the bare reference.
+            getHistory: (args) => table.getHistory(args),
+        };
+        const client = await connectedClient({ service });
+
+        const result = await client.callTool({
+            name: 'nbg_convert_many',
+            arguments: {
+                items: [
+                    { amount: 1, from: 'EUR', to: 'GEL', date: '2026-10-06' },
+                    { amount: 2, from: 'EUR', to: 'GEL', date: '2026-10-07' },
+                    { amount: 3, from: 'EUR', to: 'GEL', date: '2026-10-09' },
+                    { amount: 4, from: 'EUR', to: 'GEL', date: '2026-10-06' },
+                ],
+            },
+        });
+
+        expect(requests.map((request) => request.date)).toEqual(['2026-10-06', '2026-10-07', '2026-10-09']);
+        const output = convertManyOutput.parse(result.structuredContent);
+        expect(output.items.map((item) => ('error' in item ? 'error' : item.resultRounded))).toEqual([
+            2.93,
+            5.85,
+            'error',
+            11.71,
+        ]);
+        expect(output.items[2]).toMatchObject({ amount: 3, date: '2026-10-09' });
+        expect(JSON.stringify(output.items[2])).toContain('not published a rate for 2026-10-09');
+        expect(output).toMatchObject({ converted: 3, skipped: 1, total: { to: 'GEL', resultRounded: 20.49 } });
+        await client.close();
+    });
+
+    it('posts the total as a ledger does: the rounded lines summed, not the sum rounded', async () => {
+        const { service } = tableService();
+        const client = await connectedClient({ service });
+        // Two lines of 26.025 each post as 26.03 + 26.03 = 52.06; rounding the summed 52.05 would give 52.05.
+        const result = await client.callTool({
+            name: 'nbg_convert_many',
+            arguments: {
+                items: [
+                    { amount: 10, from: 'USD', to: 'GEL', date: '2026-10-07' },
+                    { amount: 10, from: 'USD', to: 'GEL', date: '2026-10-07' },
+                ],
+            },
+        });
+        expect(result.structuredContent).toMatchObject({ total: { to: 'GEL', resultRounded: 52.06 } });
+        await client.close();
+    });
+
+    it('stops asking NBG after one outage and fails the remaining dates with the same error', async () => {
+        const { service: table, requests } = tableService();
+        const outage: RatesError = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
+        const service: RatesService = {
+            getSnapshot(args) {
+                if (args.date === '2026-10-07') {
+                    requests.push({ date: args.date, language: args.language, codes: args.codes });
+                    return Promise.resolve(err(outage));
+                }
+                return table.getSnapshot(args);
+            },
+            getHistory: (args) => table.getHistory(args),
+        };
+        const client = await connectedClient({ service });
+
+        const result = await client.callTool({
+            name: 'nbg_convert_many',
+            arguments: {
+                items: [
+                    { amount: 1, from: 'USD', to: 'GEL', date: '2026-10-07' },
+                    { amount: 2, from: 'USD', to: 'GEL', date: '2026-10-06' },
+                    { amount: 3, from: 'USD', to: 'GEL', date: '2026-10-07' },
+                ],
+            },
+        });
+
+        // 2026-10-06 was never requested: after an outage every later date gets the same error without a wait.
+        expect(requests.map((request) => request.date)).toEqual(['2026-10-07']);
+        const output = convertManyOutput.parse(result.structuredContent);
+        expect(output.items.map((item) => ('error' in item ? item.error : 'ok'))).toEqual([
+            describeError(outage),
+            describeError(outage),
+            describeError(outage),
+        ]);
+        expect(output).toMatchObject({ converted: 0, skipped: 3 });
+        expect(output).not.toHaveProperty('total');
+        await client.close();
+    });
+
+    it('omits a total that is not a finite number', async () => {
+        const client = await connectedClient();
+        // Each identity item is finite; their exact sum, 2e308, is not representable as a JSON number.
+        const result = await client.callTool({
+            name: 'nbg_convert_many',
+            arguments: {
+                items: [
+                    { amount: 1e308, from: 'GEL', to: 'GEL' },
+                    { amount: 1e308, from: 'GEL', to: 'GEL' },
+                ],
+            },
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toMatchObject({ converted: 2, skipped: 0 });
+        expect(result.structuredContent).not.toHaveProperty('total');
+        await client.close();
+    });
+
+    it('omits the total when targets differ and needs no service call for GEL to GEL items', async () => {
+        const { service, requests } = tableService();
+        const client = await connectedClient({ service });
+
+        const mixed = await client.callTool({
+            name: 'nbg_convert_many',
+            arguments: {
+                items: [
+                    { amount: 1, from: 'USD', to: 'GEL', date: '2026-10-07' },
+                    { amount: 1, from: 'GEL', to: 'USD', date: '2026-10-07' },
+                ],
+            },
+        });
+        expect(mixed.structuredContent).toMatchObject({ converted: 2, skipped: 0 });
+        expect(mixed.structuredContent).not.toHaveProperty('total');
+
+        const identity = await client.callTool({
+            name: 'nbg_convert_many',
+            arguments: { items: [{ amount: 5.005, from: 'GEL', to: 'gel' }] },
+        });
+        expect(identity.structuredContent).toMatchObject({
+            items: [{ result: 5.005, resultRounded: 5.01, rate: 1, via: 'direct' }],
+            total: { to: 'GEL', resultRounded: 5.01 },
+        });
+        expect(requests.map((request) => request.date)).toEqual(['2026-10-07']);
+        await client.close();
+    });
+
+    it('rejects an empty list and more than 100 items at the schema, and answers exactly 100', async () => {
+        const { service, requests } = tableService();
+        const client = await connectedClient({ service });
+        const empty = await client.callTool({ name: 'nbg_convert_many', arguments: { items: [] } });
+        expect(empty.isError).toBe(true);
+        const item = { amount: 1, from: 'USD', to: 'GEL', date: '2026-10-07' };
+        const tooMany = await client.callTool({
+            name: 'nbg_convert_many',
+            arguments: { items: Array.from({ length: 101 }, () => item) },
+        });
+        expect(tooMany.isError).toBe(true);
+        expect(JSON.stringify(tooMany.content)).toMatch(/100/);
+        const full = await client.callTool({
+            name: 'nbg_convert_many',
+            arguments: { items: Array.from({ length: 100 }, () => item) },
+        });
+        // Each line of 2.6025 posts as 2.60, so the ledger total is 260.00, not the 260.25 of the unrounded sum.
+        expect(full.structuredContent).toMatchObject({ converted: 100, skipped: 0, total: { resultRounded: 260 } });
+        expect(requests).toHaveLength(1);
         await client.close();
     });
 });

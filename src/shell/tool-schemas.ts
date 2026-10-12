@@ -38,6 +38,26 @@ export const convertInput = z.object({
         .describe('Calendar date YYYY-MM-DD whose official rate to apply. Defaults to today in Tbilisi.'),
 });
 
+/** Loose on purpose: the shape only, so one malformed date or code costs its item and not the batch. */
+const convertItemInput = z.object({
+    amount: z.number().finite().describe('Amount in the "from" currency. May be negative.'),
+    from: z.string().max(64).describe('ISO 4217 code, or GEL.'),
+    to: z.string().max(64).describe('ISO 4217 code, or GEL.'),
+    date: z
+        .string()
+        .max(64)
+        .optional()
+        .describe('Calendar date YYYY-MM-DD whose official rate to apply. Defaults to today in Tbilisi.'),
+});
+
+export const convertManyInput = z.object({
+    items: z
+        .array(convertItemInput)
+        .min(1)
+        .max(100)
+        .describe('1 to 100 conversions, each with the fields of nbg_convert; items are answered independently.'),
+});
+
 export const listCurrenciesInput = z.object({
     language: languageInput.optional(),
 });
@@ -91,6 +111,35 @@ export const convertOutput = z.object({
     requestedDate: z.string(),
     effectiveDate,
     carriedOver,
+});
+
+const convertItemFailure = z.object({
+    amount: z.number(),
+    from: z.string(),
+    to: z.string(),
+    date: z.string().optional(),
+    error: z.string().describe('Why this item was not converted; the same text nbg_convert would return'),
+});
+
+export const convertManyOutput = z.object({
+    items: z
+        .array(z.union([convertOutput, convertItemFailure]))
+        .describe('One entry per input item, in input order: a conversion, or the item with an error'),
+    converted: z.number().int(),
+    skipped: z.number().int(),
+    total: z
+        .object({
+            to: z.string(),
+            resultRounded: z
+                .number()
+                .describe('Exact sum of the resultRounded values of the converted items, as a ledger posts lines'),
+        })
+        .optional()
+        .describe(
+            'Present only when at least one item converted, every converted item has the same target currency, and ' +
+                'the sum is a finite number. It covers the converted items only: when skipped is not 0, say the total ' +
+                'is partial and list the skipped items.',
+        ),
 });
 
 export const listCurrenciesOutput = z.object({

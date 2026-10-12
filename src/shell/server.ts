@@ -2,9 +2,12 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { convertAmount, roundedAmount } from '../core/convert.js';
 import { GEL, parseCurrencyCode } from '../core/currency-code.js';
 import { NBG_ARCHIVE_START, TBILISI_TIME_ZONE, addDays, parseCalendarDate, todayIn } from '../core/dates.js';
+import { add, decimalToRational, fromInteger, roundHalfUp } from '../core/decimal.js';
 import {
+    err,
     ok,
     type CalendarDate,
+    type Conversion,
     type CurrencyCode,
     type RatesError,
     type RatesSnapshot,
@@ -15,6 +18,8 @@ import { PROMPTS, promptArgsSchema, renderPrompt } from './prompts.js';
 import type { RatesService } from './rates-service.js';
 import {
     convertInput,
+    convertManyInput,
+    convertManyOutput,
     convertOutput,
     getRatesInput,
     getRatesOutput,
@@ -134,6 +139,71 @@ function snapshotOutput(snapshot: RatesSnapshot, malformedCodes: ReadonlyArray<s
     };
 }
 
+interface ConvertRequest {
+    readonly amount: number;
+    readonly from: string;
+    readonly to: string;
+    readonly date?: string | undefined;
+}
+
+interface PreparedConversion {
+    readonly amount: number;
+    readonly from: CurrencyCode;
+    readonly to: CurrencyCode;
+    readonly date: CalendarDate;
+}
+
+/** The checks that need no NBG data: the date, then each code; the first failure is the item's error. */
+function prepareConversion(request: ConvertRequest, now: Date): Result<PreparedConversion, RatesError> {
+    const resolved = resolveDate(request.date, now);
+    if (!resolved.ok) {
+        return resolved;
+    }
+    const from = parseCurrencyCode(request.from);
+    if (!from.ok) {
+        return from;
+    }
+    const to = parseCurrencyCode(request.to);
+    if (!to.ok) {
+        return to;
+    }
+    return ok({ amount: request.amount, from: from.value, to: to.value, date: resolved.value });
+}
+
+function isIdentity(prepared: PreparedConversion): boolean {
+    return prepared.from === GEL && prepared.to === GEL;
+}
+
+/** GEL to GEL needs no NBG rate, so it answers for any valid date without a request. */
+function identityConversion(prepared: PreparedConversion): Conversion {
+    return {
+        amount: prepared.amount,
+        from: GEL,
+        to: GEL,
+        result: prepared.amount,
+        resultRounded: roundedAmount(prepared.amount),
+        rate: 1,
+        via: 'direct',
+        requestedDate: prepared.date,
+        effectiveDate: prepared.date,
+        carriedOver: false,
+    };
+}
+
+function conversionOutput(conversion: Conversion) {
+    return { ...conversion };
+}
+
+function failedItem(request: ConvertRequest, error: RatesError) {
+    return {
+        amount: request.amount,
+        from: request.from,
+        to: request.to,
+        ...(request.date === undefined ? {} : { date: request.date }),
+        error: describeError(error),
+    };
+}
+
 /** Sent once per session; a client that loads tools on demand reads it to decide when this server is relevant. */
 export const SERVER_INSTRUCTIONS =
     'Official exchange rates of the Georgian lari (GEL) set by the National Bank of Georgia (NBG). ' +
@@ -197,40 +267,105 @@ export function createServer(deps: ServerDeps): McpServer {
             outputSchema: convertOutput,
             annotations: READ_ONLY,
         },
-        async ({ amount, from, to, date }) => {
-            const resolved = resolveDate(date, deps.now());
-            if (!resolved.ok) {
-                return failure(resolved.error);
+        async (request) => {
+            const prepared = prepareConversion(request, deps.now());
+            if (!prepared.ok) {
+                return failure(prepared.error);
             }
-            const fromCode = parseCurrencyCode(from);
-            if (!fromCode.ok) {
-                return failure(fromCode.error);
+            if (isIdentity(prepared.value)) {
+                return success(conversionOutput(identityConversion(prepared.value)));
             }
-            const toCode = parseCurrencyCode(to);
-            if (!toCode.ok) {
-                return failure(toCode.error);
-            }
-            if (fromCode.value === GEL && toCode.value === GEL) {
-                // The identity needs no NBG rate, so it answers for any valid date without a request.
-                return success({
-                    amount,
-                    from: GEL,
-                    to: GEL,
-                    result: amount,
-                    resultRounded: roundedAmount(amount),
-                    rate: 1,
-                    via: 'direct' as const,
-                    requestedDate: resolved.value,
-                    effectiveDate: resolved.value,
-                    carriedOver: false,
-                });
-            }
-            const snapshot = await deps.service.getSnapshot({ date: resolved.value, language: 'en' });
+            const snapshot = await deps.service.getSnapshot({ date: prepared.value.date, language: 'en' });
             if (!snapshot.ok) {
                 return failure(snapshot.error);
             }
-            const conversion = convertAmount(snapshot.value, amount, fromCode.value, toCode.value);
-            return conversion.ok ? success({ ...conversion.value }) : failure(conversion.error);
+            const { amount, from, to } = prepared.value;
+            const conversion = convertAmount(snapshot.value, amount, from, to);
+            return conversion.ok ? success(conversionOutput(conversion.value)) : failure(conversion.error);
+        },
+    );
+
+    server.registerTool(
+        'nbg_convert_many',
+        {
+            title: 'Convert a list via NBG rates',
+            description:
+                'Converts a list of amounts, each at the official NBG rate in force on its own date: one call for a ' +
+                'list of invoices. Items are answered independently; a bad date or code fails only its item, with the ' +
+                'error text in that item. total is present when every converted item has the same target currency ' +
+                'and covers the converted items only. Once NBG stops answering, the remaining dates fail with the ' +
+                'same error without being asked. Show resultRounded as the amounts. ' +
+                DATE_RULES,
+            inputSchema: convertManyInput,
+            outputSchema: convertManyOutput,
+            annotations: READ_ONLY,
+        },
+        async ({ items }) => {
+            const now = deps.now();
+            const prepared = items.map((item) => prepareConversion(item, now));
+            // One service call per distinct date, in first-seen order; GEL to GEL items need none.
+            const snapshots = new Map<CalendarDate, Result<RatesSnapshot, RatesError>>();
+            let outage: RatesError | undefined;
+            for (const item of prepared) {
+                if (!item.ok || isIdentity(item.value) || snapshots.has(item.value.date)) {
+                    continue;
+                }
+                if (outage !== undefined) {
+                    // NBG is not answering: the remaining dates get the same error instead of a 20-second wait each.
+                    snapshots.set(item.value.date, err(outage));
+                    continue;
+                }
+                const snapshot = await deps.service.getSnapshot({ date: item.value.date, language: 'en' });
+                if (!snapshot.ok && snapshot.error.kind === 'upstream_unavailable') {
+                    outage = snapshot.error;
+                }
+                snapshots.set(item.value.date, snapshot);
+            }
+            const outputs = prepared.map((item, index) => {
+                const request = items[index];
+                if (request === undefined) {
+                    throw new Error('prepared and items differ in length');
+                }
+                if (!item.ok) {
+                    return failedItem(request, item.error);
+                }
+                if (isIdentity(item.value)) {
+                    return conversionOutput(identityConversion(item.value));
+                }
+                const snapshot = snapshots.get(item.value.date);
+                if (snapshot === undefined) {
+                    throw new Error(`no snapshot fetched for ${item.value.date}`);
+                }
+                if (!snapshot.ok) {
+                    return failedItem(request, snapshot.error);
+                }
+                const { amount, from, to } = item.value;
+                const conversion = convertAmount(snapshot.value, amount, from, to);
+                return conversion.ok ? conversionOutput(conversion.value) : failedItem(request, conversion.error);
+            });
+            const conversions = outputs.filter(
+                (output): output is ReturnType<typeof conversionOutput> => !('error' in output),
+            );
+            const targets = new Set(conversions.map((conversion) => conversion.to));
+            const [target] = targets;
+            // The rounded lines summed, as a ledger posts them; exact, then checked to fit a JSON number.
+            const sum = roundHalfUp(
+                conversions.reduce(
+                    (running, conversion) => add(running, decimalToRational(conversion.resultRounded)),
+                    fromInteger(0),
+                ),
+                2,
+            );
+            const total =
+                target === undefined || targets.size !== 1 || !Number.isFinite(sum)
+                    ? {}
+                    : { total: { to: target, resultRounded: sum } };
+            return success({
+                items: outputs,
+                converted: conversions.length,
+                skipped: outputs.length - conversions.length,
+                ...total,
+            });
         },
     );
 

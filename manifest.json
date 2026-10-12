@@ -25,6 +25,10 @@
             "description": "Official NBG rates in force on a calendar date, per one unit, with carried-over flag"
         },
         { "name": "nbg_convert", "description": "Convert an amount using the official NBG rate in force on a date" },
+        {
+            "name": "nbg_convert_many",
+            "description": "Convert a list of amounts, each at the official NBG rate of its own date, with a total"
+        },
         { "name": "nbg_list_currencies", "description": "Currencies NBG publishes a GEL rate for today" },
         { "name": "nbg_rate_history", "description": "One currency's official rate for every calendar day in a range" }
     ],

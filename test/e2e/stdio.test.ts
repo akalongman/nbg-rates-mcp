@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as z from 'zod';
 import { SERVER_INSTRUCTIONS } from '../../src/shell/server.js';
 import {
+    convertManyOutput,
     convertOutput,
     getRatesOutput,
     listCurrenciesOutput,
@@ -55,6 +56,7 @@ describe('nbg-rates-mcp over stdio', () => {
         const { tools } = await client.listTools();
         expect(tools.map((tool) => tool.name).sort()).toEqual([
             'nbg_convert',
+            'nbg_convert_many',
             'nbg_get_rates',
             'nbg_list_currencies',
             'nbg_rate_history',
@@ -129,6 +131,25 @@ describe('nbg-rates-mcp over stdio', () => {
         // 100 USD in EUR is not a tie at the third decimal on 2026-10-07, so toFixed and half up agree here.
         expect(output.resultRounded).toBe(Number(output.result.toFixed(2)));
         expect(String(output.resultRounded)).toMatch(/^-?\d+(\.\d{1,2})?$/);
+    });
+
+    it('converts a batch, one CSV-free JSON request per distinct date', async () => {
+        const before = server.requests.length;
+        const result = await client.callTool({
+            name: 'nbg_convert_many',
+            arguments: {
+                items: [
+                    { amount: 100, from: 'USD', to: 'GEL', date: '2026-10-06' },
+                    { amount: 200, from: 'EUR', to: 'GEL', date: '2026-10-06' },
+                    { amount: 300, from: 'USD', to: 'GEL', date: '2026-10-04' },
+                ],
+            },
+        });
+        const output = convertManyOutput.parse(result.structuredContent);
+        expect(output).toMatchObject({ converted: 3, skipped: 0, total: { to: 'GEL' } });
+        expect(output.items.every((item) => !('error' in item))).toBe(true);
+        // 2026-10-06 is cached by the earlier tests; 2026-10-04 too. At most one request per distinct date.
+        expect(server.requests.length - before).toBeLessThanOrEqual(2);
     });
 
     it('lists currencies', async () => {
