@@ -1,0 +1,41 @@
+/**
+ * Turns a transport's request shape into a web standard Request and a Response back. Shared by the node:http server
+ * (http-node.ts) and the Lambda entry (lambda.ts), so the HTTP shell only ever sees web Requests. Bodies are buffered:
+ * every response this server produces is a single JSON body or a short SSE stream that ends with the result.
+ */
+
+export interface IncomingRequest {
+    readonly method: string;
+    /** Absolute, built by the transport from its Host header and the path plus query. */
+    readonly url: string;
+    readonly headers: Readonly<Record<string, string>>;
+    readonly body: Uint8Array | null;
+}
+
+export interface OutgoingResponse {
+    readonly status: number;
+    readonly headers: Readonly<Record<string, string>>;
+    readonly body: Uint8Array;
+}
+
+const BODYLESS_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+export function toWebRequest(incoming: IncomingRequest): Request {
+    const method = incoming.method.toUpperCase();
+    const init: RequestInit = { method, headers: incoming.headers };
+    if (incoming.body !== null && !BODYLESS_METHODS.has(method)) {
+        // A fresh copy: the Request constructor keeps the view, and a transport may reuse its buffer.
+        init.body = new Uint8Array(incoming.body);
+    }
+    return new Request(incoming.url, init);
+}
+
+export async function fromWebResponse(response: Response): Promise<OutgoingResponse> {
+    const headers: Record<string, string> = {};
+    // Headers iteration already joins repeated values with ", "; set-cookie is the one exception
+    // and this server sets none.
+    for (const [name, value] of response.headers) {
+        headers[name] = value;
+    }
+    return { status: response.status, headers, body: new Uint8Array(await response.arrayBuffer()) };
+}
