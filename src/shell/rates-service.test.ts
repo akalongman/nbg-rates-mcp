@@ -91,7 +91,12 @@ describe('getSnapshot', () => {
         const result = await rates.getSnapshot({ date: date('2026-10-09'), language: 'en' });
         expect(result).toEqual({
             ok: false,
-            error: { kind: 'rate_not_published', date: '2026-10-09', latestEffectiveDate: '2026-10-07' },
+            error: {
+                kind: 'rate_not_published',
+                date: '2026-10-09',
+                latestEffectiveDate: '2026-10-07',
+                today: '2026-10-08',
+            },
         });
     });
 

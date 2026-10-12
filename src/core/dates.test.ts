@@ -141,7 +141,12 @@ describe('rejectBeyondTomorrow', () => {
     it('rejects the day after tomorrow and later as not published, without a latest date', () => {
         expect(rejectBeyondTomorrow(date('2099-01-01'), today)).toEqual({
             ok: false,
-            error: { kind: 'rate_not_published', date: '2099-01-01', latestEffectiveDate: undefined },
+            error: {
+                kind: 'rate_not_published',
+                date: '2099-01-01',
+                latestEffectiveDate: undefined,
+                today: '2026-10-08',
+            },
         });
         expect(rejectBeyondTomorrow(date('2026-10-10'), today).ok).toBe(false);
     });

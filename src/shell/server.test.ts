@@ -113,12 +113,26 @@ describe('describeError', () => {
                 /BGN rate in force on 2026-01-01.*first quoted.*stopped quoting.*gap/,
             ],
             [
-                { kind: 'rate_not_published', date: date('2026-10-09'), latestEffectiveDate: date('2026-10-08') },
-                /2026-10-09.*2026-10-08.*17:00/,
+                { kind: 'invalid_currency_code', value: 'dollar' },
+                /"dollar" is not a currency code.*ISO 4217.*USD.*EUR.*GEL/,
             ],
             [
-                { kind: 'rate_not_published', date: date('2099-01-01'), latestEffectiveDate: undefined },
-                /2099-01-01.*17:00/,
+                {
+                    kind: 'rate_not_published',
+                    date: date('2026-10-09'),
+                    latestEffectiveDate: date('2026-10-08'),
+                    today: date('2026-10-08'),
+                },
+                /2026-10-09 yet\. Today in Tbilisi is 2026-10-08; the latest date that can have a rate is 2026-10-09, after about 17:00 Tbilisi time\. The latest published rate is valid from 2026-10-08\. For a range, end it at today\./,
+            ],
+            [
+                {
+                    kind: 'rate_not_published',
+                    date: date('2099-01-01'),
+                    latestEffectiveDate: undefined,
+                    today: date('2026-10-08'),
+                },
+                /2099-01-01 yet\. Today in Tbilisi is 2026-10-08; the latest date that can have a rate is 2026-10-09, after about 17:00 Tbilisi time\. For a range, end it at today\./,
             ],
             [{ kind: 'upstream_unavailable', detail: 'HTTP 503' }, /503.*retried/],
             [{ kind: 'upstream_shape_changed', detail: 'currencies: expected array' }, /currencies.*issues/],
@@ -392,7 +406,12 @@ describe('createServer', () => {
         const unpublished: RatesService = {
             getSnapshot: ({ date: requestedDate }) =>
                 Promise.resolve(
-                    err({ kind: 'rate_not_published', date: requestedDate, latestEffectiveDate: date('2026-10-08') }),
+                    err({
+                        kind: 'rate_not_published',
+                        date: requestedDate,
+                        latestEffectiveDate: date('2026-10-08'),
+                        today: date('2026-10-08'),
+                    }),
                 ),
             getHistory: () => Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'stub' })),
         };
@@ -448,6 +467,20 @@ describe('createServer', () => {
                 }),
             },
         ]);
+        await client.close();
+    });
+
+    it('tells the model a word is not a code instead of sending it to the currency list', async () => {
+        const client = await connectedClient();
+        const result = await client.callTool({
+            name: 'nbg_convert',
+            arguments: { amount: 1, from: 'dollar', to: 'GEL', date: '2026-10-07' },
+        });
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual([
+            { type: 'text', text: describeError({ kind: 'invalid_currency_code', value: 'dollar' }) },
+        ]);
+        expect(JSON.stringify(result.content)).not.toContain('nbg_list_currencies');
         await client.close();
     });
 

@@ -114,7 +114,12 @@ describe('requirePublished', () => {
         const tomorrow = normalizeSnapshot(day('en-2026-10-07'), date('2026-10-08'));
         expect(requirePublished(tomorrow, date('2026-10-07'))).toEqual({
             ok: false,
-            error: { kind: 'rate_not_published', date: '2026-10-08', latestEffectiveDate: '2026-10-07' },
+            error: {
+                kind: 'rate_not_published',
+                date: '2026-10-08',
+                latestEffectiveDate: '2026-10-07',
+                today: '2026-10-07',
+            },
         });
     });
 

@@ -16,7 +16,7 @@ describe('parseCurrencyCode', () => {
             const result = parseCurrencyCode(input);
             expect(result.ok).toBe(false);
             if (!result.ok) {
-                expect(result.error).toEqual({ kind: 'unknown_currency', code: input });
+                expect(result.error).toEqual({ kind: 'invalid_currency_code', value: input });
             }
         }
     });

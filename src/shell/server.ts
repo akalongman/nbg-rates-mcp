@@ -1,7 +1,7 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { convertAmount, roundedAmount } from '../core/convert.js';
 import { GEL, parseCurrencyCode } from '../core/currency-code.js';
-import { NBG_ARCHIVE_START, TBILISI_TIME_ZONE, parseCalendarDate, todayIn } from '../core/dates.js';
+import { NBG_ARCHIVE_START, TBILISI_TIME_ZONE, addDays, parseCalendarDate, todayIn } from '../core/dates.js';
 import {
     ok,
     type CalendarDate,
@@ -47,12 +47,18 @@ export function describeError(error: RatesError): string {
             const subject = error.currency === undefined ? 'rates' : `${error.currency} rate`;
             return `NBG has no ${subject} in force on ${error.date}. The archive starts on ${NBG_ARCHIVE_START}, and a currency has no rate before NBG first quoted it, after NBG stopped quoting it, or on a day where NBG's records have a gap.`;
         }
+        case 'invalid_currency_code':
+            return `"${error.value}" is not a currency code. Use the three-letter ISO 4217 code, for example USD for US dollars, EUR for euros or GEL for lari.`;
         case 'rate_not_published': {
             const latest =
                 error.latestEffectiveDate === undefined
                     ? ''
                     : ` The latest published rate is valid from ${error.latestEffectiveDate}.`;
-            return `NBG has not published a rate for ${error.date} yet.${latest} ${PUBLICATION_RULE}`;
+            return (
+                `NBG has not published a rate for ${error.date} yet. Today in Tbilisi is ${error.today}; ` +
+                `the latest date that can have a rate is ${addDays(error.today, 1)}, after about 17:00 Tbilisi time.` +
+                `${latest} For a range, end it at today. ${PUBLICATION_RULE}`
+            );
         }
         case 'upstream_unavailable':
             return `NBG did not respond usably (${error.detail}). The request can be retried.`;

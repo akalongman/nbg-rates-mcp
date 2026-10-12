@@ -82,7 +82,7 @@ export function assembleHistory(
             return err({ kind: 'no_data_for_date', date: day, currency });
         }
         if (!isSettled(day, publication, today)) {
-            return err({ kind: 'rate_not_published', date: day, latestEffectiveDate: latestPublication });
+            return err({ kind: 'rate_not_published', date: day, latestEffectiveDate: latestPublication, today });
         }
         points.push({
             date: day,

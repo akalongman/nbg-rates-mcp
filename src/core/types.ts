@@ -16,6 +16,7 @@ export type RatesError =
     | { readonly kind: 'invalid_date'; readonly value: string; readonly reason: string }
     | { readonly kind: 'range_too_long'; readonly days: number; readonly max: number }
     | { readonly kind: 'unknown_currency'; readonly code: string }
+    | { readonly kind: 'invalid_currency_code'; readonly value: string }
     | {
           readonly kind: 'result_out_of_range';
           readonly amount: number;
@@ -27,6 +28,7 @@ export type RatesError =
           readonly kind: 'rate_not_published';
           readonly date: CalendarDate;
           readonly latestEffectiveDate: CalendarDate | undefined;
+          readonly today: CalendarDate;
       }
     | { readonly kind: 'upstream_unavailable'; readonly detail: string }
     | { readonly kind: 'upstream_shape_changed'; readonly detail: string };

@@ -111,7 +111,7 @@ export function isSettled(requested: CalendarDate, effective: CalendarDate, toda
 /** No rate for a date after tomorrow can exist yet, so it is rejected before any request. */
 export function rejectBeyondTomorrow(date: CalendarDate, today: CalendarDate): Result<CalendarDate, RatesError> {
     if (date > addDays(today, 1)) {
-        return err({ kind: 'rate_not_published', date, latestEffectiveDate: undefined });
+        return err({ kind: 'rate_not_published', date, latestEffectiveDate: undefined, today });
     }
     return ok(date);
 }

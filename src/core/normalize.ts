@@ -55,6 +55,7 @@ export function requirePublished(snapshot: RatesSnapshot, today: CalendarDate): 
         kind: 'rate_not_published',
         date: snapshot.requestedDate,
         latestEffectiveDate: snapshot.effectiveDate,
+        today,
     });
 }
 
