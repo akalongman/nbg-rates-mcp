@@ -105,6 +105,9 @@ describe('createHttpHandler', () => {
         const { handler } = handlerWith();
         const response = await handler(post(INITIALIZE, { host: 'nbg-rates.env.ge:443' }));
         expect(response.status).toBe(200);
+        // URL parsing drops the default :443, so only a non-default port reaches the Host check.
+        const nonDefaultPort = await handler(post(INITIALIZE, { host: 'nbg-rates.env.ge:8443' }));
+        expect(nonDefaultPort.status).toBe(200);
     });
 
     it('skips the host check when no host is allowed', async () => {
