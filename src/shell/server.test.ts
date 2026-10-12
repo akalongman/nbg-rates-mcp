@@ -251,7 +251,13 @@ describe('createServer', () => {
 
     it('answers nbg_rate_history with compact days and the same JSON in its one text block', async () => {
         function point(day: string, effective: string, rate: number): HistoryPoint {
-            return { date: date(day), effectiveDate: date(effective), rate, carriedOver: effective < day };
+            return {
+                date: date(day),
+                effectiveDate: date(effective),
+                rate,
+                nbgQuantity: 1,
+                carriedOver: effective < day,
+            };
         }
         // USD 2026-10-02 (Friday) to 2026-10-06 (Tuesday), as NBG published it: Saturday has its own table.
         const days = [

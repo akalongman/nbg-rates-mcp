@@ -102,13 +102,13 @@ describe('assembleHistory', () => {
         if (result.ok) {
             expect(result.value).toMatchObject({ currency: 'USD', from: '2026-10-01', to: '2026-10-07' });
             expect(result.value.days).toEqual([
-                { date: '2026-10-01', effectiveDate: '2026-10-01', rate: 2.6047, carriedOver: false },
-                { date: '2026-10-02', effectiveDate: '2026-10-02', rate: 2.6042, carriedOver: false },
-                { date: '2026-10-03', effectiveDate: '2026-10-03', rate: 2.6039, carriedOver: false },
-                { date: '2026-10-04', effectiveDate: '2026-10-03', rate: 2.6039, carriedOver: true },
-                { date: '2026-10-05', effectiveDate: '2026-10-03', rate: 2.6039, carriedOver: true },
-                { date: '2026-10-06', effectiveDate: '2026-10-06', rate: 2.6032, carriedOver: false },
-                { date: '2026-10-07', effectiveDate: '2026-10-07', rate: 2.6025, carriedOver: false },
+                { date: '2026-10-01', effectiveDate: '2026-10-01', rate: 2.6047, nbgQuantity: 1, carriedOver: false },
+                { date: '2026-10-02', effectiveDate: '2026-10-02', rate: 2.6042, nbgQuantity: 1, carriedOver: false },
+                { date: '2026-10-03', effectiveDate: '2026-10-03', rate: 2.6039, nbgQuantity: 1, carriedOver: false },
+                { date: '2026-10-04', effectiveDate: '2026-10-03', rate: 2.6039, nbgQuantity: 1, carriedOver: true },
+                { date: '2026-10-05', effectiveDate: '2026-10-03', rate: 2.6039, nbgQuantity: 1, carriedOver: true },
+                { date: '2026-10-06', effectiveDate: '2026-10-06', rate: 2.6032, nbgQuantity: 1, carriedOver: false },
+                { date: '2026-10-07', effectiveDate: '2026-10-07', rate: 2.6025, nbgQuantity: 1, carriedOver: false },
             ]);
         }
     });
@@ -119,6 +119,7 @@ describe('assembleHistory', () => {
             date: '2026-10-04',
             effectiveDate: '2026-10-03',
             rate: 2.6039,
+            nbgQuantity: 1,
             carriedOver: true,
         });
     });
@@ -127,26 +128,26 @@ describe('assembleHistory', () => {
         // In BGN_EURO_CHANGEOVER the USD publication valid from 2026-01-01 stays in force until 2026-01-06.
         const result = assembleHistory(code('USD'), days('2025-12-31', '2026-01-06'), rows(BGN_EURO_CHANGEOVER), TODAY);
         expect(result.ok && result.value.days).toEqual([
-            { date: '2025-12-31', effectiveDate: '2025-12-31', rate: 2.6951, carriedOver: false },
-            { date: '2026-01-01', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: false },
-            { date: '2026-01-02', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: true },
-            { date: '2026-01-03', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: true },
-            { date: '2026-01-04', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: true },
-            { date: '2026-01-05', effectiveDate: '2026-01-01', rate: 2.6963, carriedOver: true },
-            { date: '2026-01-06', effectiveDate: '2026-01-06', rate: 2.6968, carriedOver: false },
+            { date: '2025-12-31', effectiveDate: '2025-12-31', rate: 2.6951, nbgQuantity: 1, carriedOver: false },
+            { date: '2026-01-01', effectiveDate: '2026-01-01', rate: 2.6963, nbgQuantity: 1, carriedOver: false },
+            { date: '2026-01-02', effectiveDate: '2026-01-01', rate: 2.6963, nbgQuantity: 1, carriedOver: true },
+            { date: '2026-01-03', effectiveDate: '2026-01-01', rate: 2.6963, nbgQuantity: 1, carriedOver: true },
+            { date: '2026-01-04', effectiveDate: '2026-01-01', rate: 2.6963, nbgQuantity: 1, carriedOver: true },
+            { date: '2026-01-05', effectiveDate: '2026-01-01', rate: 2.6963, nbgQuantity: 1, carriedOver: true },
+            { date: '2026-01-06', effectiveDate: '2026-01-06', rate: 2.6968, nbgQuantity: 1, carriedOver: false },
         ]);
     });
 
     it('uses a table NBG published after the day it is valid from', () => {
         const result = assembleHistory(code('USD'), days('2026-09-24', '2026-09-30'), rows(LATE_SATURDAY_2026), TODAY);
         expect(result.ok && result.value.days).toEqual([
-            { date: '2026-09-24', effectiveDate: '2026-09-24', rate: 2.6229, carriedOver: false },
-            { date: '2026-09-25', effectiveDate: '2026-09-25', rate: 2.6218, carriedOver: false },
-            { date: '2026-09-26', effectiveDate: '2026-09-26', rate: 2.608, carriedOver: false },
-            { date: '2026-09-27', effectiveDate: '2026-09-26', rate: 2.608, carriedOver: true },
-            { date: '2026-09-28', effectiveDate: '2026-09-26', rate: 2.608, carriedOver: true },
-            { date: '2026-09-29', effectiveDate: '2026-09-29', rate: 2.6055, carriedOver: false },
-            { date: '2026-09-30', effectiveDate: '2026-09-30', rate: 2.6051, carriedOver: false },
+            { date: '2026-09-24', effectiveDate: '2026-09-24', rate: 2.6229, nbgQuantity: 1, carriedOver: false },
+            { date: '2026-09-25', effectiveDate: '2026-09-25', rate: 2.6218, nbgQuantity: 1, carriedOver: false },
+            { date: '2026-09-26', effectiveDate: '2026-09-26', rate: 2.608, nbgQuantity: 1, carriedOver: false },
+            { date: '2026-09-27', effectiveDate: '2026-09-26', rate: 2.608, nbgQuantity: 1, carriedOver: true },
+            { date: '2026-09-28', effectiveDate: '2026-09-26', rate: 2.608, nbgQuantity: 1, carriedOver: true },
+            { date: '2026-09-29', effectiveDate: '2026-09-29', rate: 2.6055, nbgQuantity: 1, carriedOver: false },
+            { date: '2026-09-30', effectiveDate: '2026-09-30', rate: 2.6051, nbgQuantity: 1, carriedOver: false },
         ]);
     });
 
@@ -245,6 +246,7 @@ describe('assembleHistory', () => {
         expect(complete.ok && complete.value.days.map((point) => point.rate)).toEqual([
             0.0071762, 0.0071762, 0.0071762,
         ]);
+        expect(complete.ok && complete.value.days.map((point) => point.nbgQuantity)).toEqual([1000, 1000, 1000]);
         expect(assembleHistory(code('AMD'), days('2026-10-05', '2026-10-07'), exported, TODAY)).toEqual({
             ok: false,
             error: { kind: 'no_data_for_date', date: '2026-10-06', currency: 'AMD' },

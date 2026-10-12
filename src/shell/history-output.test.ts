@@ -4,8 +4,9 @@ import { addDays } from '../core/dates.js';
 import type { CalendarDate, HistoryPoint } from '../core/types.js';
 import { historyOutput } from './history-output.js';
 
+/** A USD fixture day: NBG quotes USD per one unit. */
 function point(day: string, effective: string, rate: number): HistoryPoint {
-    return { date: date(day), effectiveDate: date(effective), rate, carriedOver: effective < day };
+    return { date: date(day), effectiveDate: date(effective), rate, nbgQuantity: 1, carriedOver: effective < day };
 }
 
 describe('historyOutput', () => {
@@ -68,7 +69,13 @@ describe('historyOutput', () => {
             if (!carried) {
                 effective = day;
             }
-            days.push({ date: day, effectiveDate: effective, rate: 0.00012345, carriedOver: carried });
+            days.push({
+                date: day,
+                effectiveDate: effective,
+                rate: 0.00012345,
+                nbgQuantity: 10000,
+                carriedOver: carried,
+            });
         }
 
         const text = JSON.stringify(

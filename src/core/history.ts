@@ -88,6 +88,7 @@ export function assembleHistory(
             date: day,
             effectiveDate: publication,
             rate: perUnit(inForce.rate, inForce.quantity),
+            nbgQuantity: inForce.quantity,
             carriedOver: publication < day,
         });
     }

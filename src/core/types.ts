@@ -69,6 +69,8 @@ export interface HistoryPoint {
     readonly date: CalendarDate;
     readonly effectiveDate: CalendarDate;
     readonly rate: number;
+    /** Units NBG quotes the raw rate for on this day (1, 10, 100, 1000 or 10000); rate is per one unit. */
+    readonly nbgQuantity: number;
     readonly carriedOver: boolean;
 }
 

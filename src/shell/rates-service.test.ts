@@ -146,6 +146,7 @@ describe('getHistory', () => {
             date: '2026-10-01',
             effectiveDate: '2026-10-01',
             rate: 2.6047,
+            nbgQuantity: 1,
             carriedOver: false,
         });
         expect(result.ok).toBe(true);

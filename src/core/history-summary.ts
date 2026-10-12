@@ -1,10 +1,10 @@
-import { add, decimalToRational, divide, formatDecimals, fromInteger, roundHalfUp, subtract } from './decimal.js';
+import { add, decimalToRational, divide, fromInteger, roundHalfUp, subtract } from './decimal.js';
 import type { CalendarDate, HistoryPoint } from './types.js';
 
 export interface HistorySummary {
     readonly first: number;
     readonly last: number;
-    /** last - first, exact, at the series' decimals. */
+    /** last - first, exact, rounded half up to the series' decimals: 4 + log10 of its largest nbgQuantity. */
     readonly change: number;
     readonly min: number;
     /** The first calendar day the minimum occurs on. */
@@ -12,13 +12,18 @@ export interface HistorySummary {
     readonly max: number;
     /** The first calendar day the maximum occurs on. */
     readonly maxDate: CalendarDate;
-    /** Arithmetic mean over every calendar day, carried-over days included, at the series' decimals. */
+    /**
+     * Arithmetic mean over every calendar day, carried-over days included, rounded half up to the series' decimals:
+     * 4 + log10 of its largest nbgQuantity.
+     */
     readonly average: number;
 }
 
 /**
- * The series' decimals are those of its most precise rate (4 for USD, 7 for AMD), which is how NBG prints its
- * own period averages. A carried-over day counts like any other: the rate was in force on it.
+ * The series' decimals come from the quantity NBG quotes, 4 + log10(nbgQuantity), the largest over the days (4 for
+ * USD, 7 for AMD), which is how NBG prints its own period averages. Every NBG raw rate has four decimals, so this is
+ * the per-unit precision; the rate value cannot tell it, because 2.7000 arrives as 2.7. A carried-over day counts
+ * like any other: the rate was in force on it.
  */
 export function summarizeHistory(days: ReadonlyArray<HistoryPoint>): HistorySummary {
     const first = days[0];
@@ -37,7 +42,7 @@ export function summarizeHistory(days: ReadonlyArray<HistoryPoint>): HistorySumm
         if (day.rate > max.rate) {
             max = day;
         }
-        decimals = Math.max(decimals, formatDecimals(day.rate));
+        decimals = Math.max(decimals, 4 + Math.round(Math.log10(day.nbgQuantity)));
         sum = add(sum, decimalToRational(day.rate));
     }
     return {
