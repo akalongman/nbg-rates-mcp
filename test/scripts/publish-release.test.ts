@@ -217,4 +217,108 @@ describe('publish-release.sh', () => {
             expect(calls).toEqual(expected);
         });
     });
+
+    describe('lambda', () => {
+        // Stands in for the AWS CLI: logs each call, answers the reads from the environment (AWS_ALIAS_VERSION,
+        // AWS_LIVE_DESCRIPTION), publishes version 7. And for npx, which runs the smoke test: exits per SMOKE_EXIT.
+        const AWS_STUB = `#!/usr/bin/env bash
+echo "aws $*" >> "$STUB_LOG"
+case "$1 $2" in
+    "lambda get-alias") printf '%s' "$AWS_ALIAS_VERSION" ;;
+    "lambda get-function-configuration") printf '%s' "$AWS_LIVE_DESCRIPTION" ;;
+    "lambda publish-version") printf 7 ;;
+    "lambda update-function-code") printf 'arn:aws:lambda:us-east-1:1:function:nbg-rates-mcp' ;;
+    "lambda update-alias") printf 7 ;;
+    *) ;;
+esac
+`;
+        const NPX_STUB = `#!/usr/bin/env bash
+echo "npx $*" >> "$STUB_LOG"
+exit "$SMOKE_EXIT"
+`;
+        const ZIP = join(ROOT, 'nbg-rates-mcp-0.2.0-lambda.zip');
+
+        function runLambda(options: { aliasVersion: string; liveDescription: string; smokeExit: number }) {
+            writeFileSync(join(stubDir, 'aws'), AWS_STUB);
+            chmodSync(join(stubDir, 'aws'), 0o755);
+            writeFileSync(join(stubDir, 'npx'), NPX_STUB);
+            chmodSync(join(stubDir, 'npx'), 0o755);
+            writeFileSync(ZIP, 'zip bytes');
+            const log = join(stubDir, 'calls.log');
+            writeFileSync(log, '');
+            const env = {
+                ...process.env,
+                PATH: `${stubDir}:${process.env['PATH'] ?? ''}`,
+                STUB_LOG: log,
+                AWS_ALIAS_VERSION: options.aliasVersion,
+                AWS_LIVE_DESCRIPTION: options.liveDescription,
+                SMOKE_EXIT: String(options.smokeExit),
+                FUNCTION_NAME: 'nbg-rates-mcp',
+                FUNCTION_ALIAS: 'live',
+                MCP_URL: 'https://nbg-rates.env.ge/mcp',
+            };
+            // A noexec temp dir would skip the stubs and reach the real AWS CLI: the checks stop the run first.
+            expect(spawnSync('bash', ['-c', 'command -v aws'], { encoding: 'utf8', env }).stdout.trim()).toBe(
+                join(stubDir, 'aws'),
+            );
+            expect(spawnSync('bash', ['-c', 'command -v npx'], { encoding: 'utf8', env }).stdout.trim()).toBe(
+                join(stubDir, 'npx'),
+            );
+            const result = spawnSync('bash', [SCRIPT, 'lambda', '0.2.0'], { cwd: ROOT, encoding: 'utf8', env });
+            return {
+                status: result.status,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                calls: readFileSync(log, 'utf8').trim().split('\n'),
+            };
+        }
+
+        afterEach(() => {
+            rmSync(ZIP, { force: true });
+        });
+
+        const READ_ALIAS =
+            'aws lambda get-alias --function-name nbg-rates-mcp --name live --query FunctionVersion --output text';
+        const READ_DESCRIPTION =
+            'aws lambda get-function-configuration --function-name nbg-rates-mcp --qualifier 3 --query Description --output text';
+        const UPLOAD = [
+            'aws lambda update-function-code --function-name nbg-rates-mcp --zip-file fileb://nbg-rates-mcp-0.2.0-lambda.zip --query FunctionArn --output text',
+            'aws lambda wait function-updated-v2 --function-name nbg-rates-mcp',
+            'aws lambda publish-version --function-name nbg-rates-mcp --description v0.2.0 --query Version --output text',
+            'aws lambda update-alias --function-name nbg-rates-mcp --name live --function-version 7 --query FunctionVersion --output text',
+            'npx tsx scripts/smoke-http.ts https://nbg-rates.env.ge/mcp 0.2.0',
+        ];
+
+        it('uploads, publishes, moves the alias and smoke tests', () => {
+            const { status, calls } = runLambda({ aliasVersion: '3', liveDescription: 'v0.1.9', smokeExit: 0 });
+            expect(status).toBe(0);
+            expect(calls).toEqual([READ_ALIAS, READ_DESCRIPTION, ...UPLOAD]);
+        });
+
+        it('rolls the alias back and fails when the smoke test fails', () => {
+            const { status, stdout, calls } = runLambda({ aliasVersion: '3', liveDescription: 'v0.1.9', smokeExit: 1 });
+            expect(status).toBe(1);
+            expect(calls).toEqual([
+                READ_ALIAS,
+                READ_DESCRIPTION,
+                ...UPLOAD,
+                'aws lambda update-alias --function-name nbg-rates-mcp --name live --function-version 3',
+            ]);
+            expect(stdout).toContain('rolled back live to version 3');
+        });
+
+        it('leaves a function that already serves the version alone', () => {
+            const { status, stdout, calls } = runLambda({ aliasVersion: '3', liveDescription: 'v0.2.0', smokeExit: 0 });
+            expect(status).toBe(0);
+            expect(calls).toEqual([READ_ALIAS, READ_DESCRIPTION]);
+            expect(stdout).toContain('nbg-rates-mcp live is already v0.2.0');
+        });
+
+        it('refuses an alias on $LATEST before uploading', () => {
+            const { status, stderr, calls } = runLambda({ aliasVersion: '$LATEST', liveDescription: '', smokeExit: 0 });
+            expect(status).toBe(1);
+            expect(stderr).toContain('live points at $LATEST; publish a version first');
+            expect(calls).toEqual([READ_ALIAS]);
+        });
+    });
 });

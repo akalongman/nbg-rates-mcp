@@ -2,11 +2,11 @@
 # Idempotent release steps: each checks whether its target already has this
 # version before acting, so a release job that failed halfway can be re-run
 # from the top (npm refuses to publish an existing version twice).
-# Usage: scripts/publish-release.sh <npm|github|registry> <version>
+# Usage: scripts/publish-release.sh <npm|github|registry|lambda> <version>
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-usage='usage: scripts/publish-release.sh <npm|github|registry> <version>'
+usage='usage: scripts/publish-release.sh <npm|github|registry|lambda> <version>'
 step=${1:?$usage}
 version=${2:?$usage}
 package=nbg-rates-mcp
@@ -138,10 +138,48 @@ publish_registry() {
     "$publisher_dir/mcp-publisher" publish
 }
 
+# Ships the tag's build to the hosted endpoint: upload, publish an immutable
+# version described with the tag, move the alias, smoke test the public URL,
+# and move the alias back if the smoke test fails. FUNCTION_NAME,
+# FUNCTION_ALIAS and MCP_URL come from the repository variables that the
+# infrastructure's Terraform output sets. Every read uses --query and
+# --output text so a variable never holds JSON.
+publish_lambda() {
+    local zip="$package-$version-lambda.zip" previous current new
+    : "${FUNCTION_NAME:?FUNCTION_NAME is not set}" "${FUNCTION_ALIAS:?FUNCTION_ALIAS is not set}" "${MCP_URL:?MCP_URL is not set}"
+    previous=$(aws lambda get-alias --function-name "$FUNCTION_NAME" --name "$FUNCTION_ALIAS" \
+        --query FunctionVersion --output text)
+    if [ "$previous" = "\$LATEST" ]; then
+        echo "$FUNCTION_ALIAS points at \$LATEST; publish a version first, a rollback target must be immutable" >&2
+        exit 1
+    fi
+    current=$(aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --qualifier "$previous" \
+        --query Description --output text)
+    if [ "$current" = "v$version" ]; then
+        echo "$FUNCTION_NAME $FUNCTION_ALIAS is already v$version"
+        return
+    fi
+    [ -f "$zip" ] || { echo "$zip is not here; run scripts/build-lambda.sh $version first" >&2; exit 1; }
+    aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file "fileb://$zip" \
+        --query FunctionArn --output text
+    aws lambda wait function-updated-v2 --function-name "$FUNCTION_NAME"
+    new=$(aws lambda publish-version --function-name "$FUNCTION_NAME" --description "v$version" \
+        --query Version --output text)
+    aws lambda update-alias --function-name "$FUNCTION_NAME" --name "$FUNCTION_ALIAS" --function-version "$new" \
+        --query FunctionVersion --output text
+    if ! npx tsx scripts/smoke-http.ts "$MCP_URL" "$version"; then
+        aws lambda update-alias --function-name "$FUNCTION_NAME" --name "$FUNCTION_ALIAS" --function-version "$previous"
+        echo "rolled back $FUNCTION_ALIAS to version $previous"
+        exit 1
+    fi
+    echo "$FUNCTION_ALIAS is version $new (v$version)"
+}
+
 case "$step" in
     npm) publish_npm ;;
     github) publish_github ;;
     registry) publish_registry ;;
+    lambda) publish_lambda ;;
     *)
         echo "$usage" >&2
         exit 2
