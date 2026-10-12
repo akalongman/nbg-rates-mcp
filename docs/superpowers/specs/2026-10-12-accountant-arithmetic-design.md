@@ -120,7 +120,20 @@ instead of "and the result rounded to 2 decimal places".
 `nbg_rates_today` defaults to USD, EUR, GBP and TRY (argument description
 and text).
 
-`manifest.json` mirrors the three texts verbatim (the drift test already
+`nbg_rates_today` and `nbg_rate_on_date` ask for the quoted form as well
+(ruling of 2026-10-12 during implementation: the prompt is the user's own
+message, which the model weighs above a tool description, and "per one
+unit" alone is the wording the Background names as the problem). In
+`nbg_rates_today`, "report the rate in GEL per one unit and the change
+versus the previous rate" becomes "report NBG's quoted form when
+nbgQuantity is not 1 (for example 1.6452 GEL per 100 JPY), the rate in GEL
+per one unit and the change versus the previous rate". In
+`nbg_rate_on_date`, "Report the rate in GEL per one unit, the date it took
+effect" becomes "Report NBG's quoted form when nbgQuantity is not 1 (for
+example 1.6452 GEL per 100 JPY), the rate in GEL per one unit, the date it
+took effect".
+
+`manifest.json` mirrors all four texts verbatim (the drift test already
 compares them).
 
 ### README
