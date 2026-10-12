@@ -74,7 +74,11 @@ export function divide(a: Rational, b: Rational): Rational {
     return reduced(a.numerator * b.denominator, a.denominator * b.numerator);
 }
 
-/** Half up, away from zero: 26.005 to 26.01 and -26.005 to -26.01. A value that rounds to nothing is 0, never -0. */
+/**
+ * Half up, away from zero: 26.005 to 26.01 and -26.005 to -26.01. A value that rounds to nothing is 0, never -0.
+ * The result is a number: up to 2^53 in the scaled integer (about 9e13 with two decimals) it is exactly the rounded
+ * decimal; above that it is the nearest double.
+ */
 export function roundHalfUp(value: Rational, decimals: number): number {
     if (!Number.isInteger(decimals) || decimals < 0) {
         throw new Error(`decimals must be a non-negative integer, got ${decimals}`);

@@ -104,7 +104,9 @@ export const convertOutput = z.object({
     resultRounded: z
         .number()
         .describe(
-            'result rounded half up to 2 decimals from the exact value; the amount to show. JSON drops trailing zeros, so 3.90 arrives as 3.9.',
+            'result rounded half up to 2 decimals from the exact value; the amount to show. ' +
+                'JSON drops trailing zeros, so 3.90 arrives as 3.9. ' +
+                'Exact up to about 9e13 in the target currency; above that the nearest double.',
         ),
     rate: z.number().describe('One unit of "from" expressed in "to"'),
     via: z.enum(['direct', 'GEL']),
@@ -183,7 +185,7 @@ export const rateHistoryOutput = z.object({
         })
         .describe(
             'Computed by the server; report these instead of deriving them from days. change and average are exact, ' +
-                "rounded half up to the decimals NBG's quantity gives the currency, 4 + log10(nbgQuantity) " +
-                '(4 for USD, 7 for AMD).',
+                "rounded half up to the decimals NBG's quantity gives the currency, 4 + log10(nbgQuantity), the largest " +
+                'over the days (4 for USD, 7 for AMD).',
         ),
 });

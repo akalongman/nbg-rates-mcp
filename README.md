@@ -168,7 +168,7 @@ Output:
 
 - `amount`, `from`, `to`: the request, with the codes in upper case.
 - `result`: the converted amount, unrounded, for further calculation.
-- `resultRounded`: `result` rounded half up to two decimals, computed exactly from NBG's published figures; the amount to show. JSON drops trailing zeros, so 3.90 arrives as `3.9`.
+- `resultRounded`: the exact amount rounded half up to two decimals, computed from NBG's published figures; the amount to show. JSON drops trailing zeros, so 3.90 arrives as `3.9`.
 - `rate`: one unit of `from` expressed in `to`.
 - `via`: `direct` when either side is GEL (or both codes are the same), `GEL` when a pair without GEL is converted through GEL.
 - `requestedDate`, `effectiveDate`, `carriedOver`: as in `nbg_get_rates`.
@@ -184,6 +184,8 @@ Inputs:
 | Name    | Required | Description                                                                              |
 | ------- | -------- | ---------------------------------------------------------------------------------------- |
 | `items` | yes      | 1 to 100 entries of `{ amount, from, to, date? }`, each with the rules of `nbg_convert`. |
+
+An empty list, more than 100 items, or an item without the shape `{ amount, from, to, date? }` (a missing or non-numeric amount, a missing code, or a text over 64 characters) fails the whole call at the input schema; every other problem fails only its item.
 
 Output:
 
@@ -279,7 +281,7 @@ Output:
 
 - `currency`, `from`, `to`: the request, with the code in upper case.
 - `days`: one entry per calendar day. A day whose own rate is in force is `{ date, rate }`, with `rate` in GEL per one unit. A carried-over day adds `effectiveDate`, the day its rate took effect, and `carriedOver: true`; an absent `effectiveDate` means the rate took effect on `date` itself. A full year stays near 6,000 tokens.
-- `summary`: `first`, `last`, `change` (last minus first), `min` and `max` with `minDate` and `maxDate` (first occurrence), and `average`, the arithmetic mean over every calendar day of the range, carried-over days included. `change` and `average` are exact, rounded half up to the decimals NBG's quantity gives the currency (4 for USD, 7 for AMD).
+- `summary`: `first`, `last`, `change` (last minus first), `min` and `max` with `minDate` and `maxDate` (first occurrence), and `average`, the arithmetic mean over every calendar day of the range, carried-over days included. `change` and `average` are exact, rounded half up to the decimals NBG's quantity gives the currency, 4 + log10(`nbgQuantity`), the largest over the days (4 for USD, 7 for AMD).
 
 For example, USD from Friday 2026-10-02 to Tuesday 2026-10-06 (Saturday has its own rate; Sunday and Monday carry it):
 
