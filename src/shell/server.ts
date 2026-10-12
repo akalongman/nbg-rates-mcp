@@ -1,4 +1,5 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import type * as z from 'zod';
 import { convertAmount, roundedAmount } from '../core/convert.js';
 import { GEL, parseCurrencyCode } from '../core/currency-code.js';
 import { NBG_ARCHIVE_START, TBILISI_TIME_ZONE, addDays, parseCalendarDate, todayIn } from '../core/dates.js';
@@ -61,8 +62,9 @@ export function describeError(error: RatesError): string {
                     : ` The latest published rate is valid from ${error.latestEffectiveDate}.`;
             return (
                 `NBG has not published a rate for ${error.date} yet. Today in Tbilisi is ${error.today}; ` +
-                `the latest date that can have a rate is ${addDays(error.today, 1)}, after about 17:00 Tbilisi time.` +
-                `${latest} For a range, end it at today. ${PUBLICATION_RULE}`
+                `the furthest date that can have a rate is tomorrow, ${addDays(error.today, 1)}, and only once NBG ` +
+                `has published it. ${PUBLICATION_RULE} A Sunday, a Monday or the day after a public holiday gets no ` +
+                `table of its own and carries the last one once it is today.${latest} For a range, end it at today.`
             );
         }
         case 'upstream_unavailable':
@@ -202,6 +204,7 @@ function identityConversion(prepared: PreparedConversion): Conversion {
     };
 }
 
+/** Copies the readonly Conversion into a plain object the result helper accepts. */
 function conversionOutput(conversion: Conversion) {
     return { ...conversion };
 }
@@ -213,6 +216,78 @@ function failedItem(request: ConvertRequest, error: RatesError) {
         to: request.to,
         ...(request.date === undefined ? {} : { date: request.date }),
         error: describeError(error),
+    };
+}
+
+type ConvertManyItems = z.infer<typeof convertManyInput>['items'];
+
+/**
+ * The nbg_convert_many answer: each item converted or failed on its own, with one service call per distinct date and
+ * a total when every converted item has the same target.
+ */
+async function convertMany(items: ConvertManyItems, deps: ServerDeps) {
+    const now = deps.now();
+    const prepared = items.map((item) => prepareConversion(item, now));
+    // One service call per distinct date, in first-seen order; GEL to GEL items need none.
+    const snapshots = new Map<CalendarDate, Result<RatesSnapshot, RatesError>>();
+    let outage: RatesError | undefined;
+    for (const item of prepared) {
+        if (!item.ok || isIdentity(item.value) || snapshots.has(item.value.date)) {
+            continue;
+        }
+        if (outage !== undefined) {
+            // NBG is not answering: the remaining dates get the same error instead of a 20-second wait each.
+            snapshots.set(item.value.date, err(outage));
+            continue;
+        }
+        const snapshot = await deps.service.getSnapshot({ date: item.value.date, language: 'en' });
+        if (!snapshot.ok && snapshot.error.kind === 'upstream_unavailable') {
+            outage = snapshot.error;
+        }
+        snapshots.set(item.value.date, snapshot);
+    }
+    const outputs = prepared.map((item, index) => {
+        const request = items[index];
+        if (request === undefined) {
+            throw new Error('prepared and items differ in length');
+        }
+        if (!item.ok) {
+            return failedItem(request, item.error);
+        }
+        if (isIdentity(item.value)) {
+            return conversionOutput(identityConversion(item.value));
+        }
+        const snapshot = snapshots.get(item.value.date);
+        if (snapshot === undefined) {
+            throw new Error(`no snapshot fetched for ${item.value.date}`);
+        }
+        if (!snapshot.ok) {
+            return failedItem(request, snapshot.error);
+        }
+        const { amount, from, to } = item.value;
+        const conversion = convertAmount(snapshot.value, amount, from, to);
+        return conversion.ok ? conversionOutput(conversion.value) : failedItem(request, conversion.error);
+    });
+    const conversions = outputs.filter((output): output is ReturnType<typeof conversionOutput> => !('error' in output));
+    const targets = new Set(conversions.map((conversion) => conversion.to));
+    const [target] = targets;
+    // The rounded lines summed, as a ledger posts them; exact, then checked to fit a JSON number.
+    const sum = roundHalfUp(
+        conversions.reduce(
+            (running, conversion) => add(running, decimalToRational(conversion.resultRounded)),
+            fromInteger(0),
+        ),
+        2,
+    );
+    const total =
+        target === undefined || targets.size !== 1 || !Number.isFinite(sum)
+            ? {}
+            : { total: { to: target, resultRounded: sum } };
+    return {
+        items: outputs,
+        converted: conversions.length,
+        skipped: outputs.length - conversions.length,
+        ...total,
     };
 }
 
@@ -320,73 +395,7 @@ export function createServer(deps: ServerDeps): McpServer {
             outputSchema: convertManyOutput,
             annotations: READ_ONLY,
         },
-        async ({ items }) => {
-            const now = deps.now();
-            const prepared = items.map((item) => prepareConversion(item, now));
-            // One service call per distinct date, in first-seen order; GEL to GEL items need none.
-            const snapshots = new Map<CalendarDate, Result<RatesSnapshot, RatesError>>();
-            let outage: RatesError | undefined;
-            for (const item of prepared) {
-                if (!item.ok || isIdentity(item.value) || snapshots.has(item.value.date)) {
-                    continue;
-                }
-                if (outage !== undefined) {
-                    // NBG is not answering: the remaining dates get the same error instead of a 20-second wait each.
-                    snapshots.set(item.value.date, err(outage));
-                    continue;
-                }
-                const snapshot = await deps.service.getSnapshot({ date: item.value.date, language: 'en' });
-                if (!snapshot.ok && snapshot.error.kind === 'upstream_unavailable') {
-                    outage = snapshot.error;
-                }
-                snapshots.set(item.value.date, snapshot);
-            }
-            const outputs = prepared.map((item, index) => {
-                const request = items[index];
-                if (request === undefined) {
-                    throw new Error('prepared and items differ in length');
-                }
-                if (!item.ok) {
-                    return failedItem(request, item.error);
-                }
-                if (isIdentity(item.value)) {
-                    return conversionOutput(identityConversion(item.value));
-                }
-                const snapshot = snapshots.get(item.value.date);
-                if (snapshot === undefined) {
-                    throw new Error(`no snapshot fetched for ${item.value.date}`);
-                }
-                if (!snapshot.ok) {
-                    return failedItem(request, snapshot.error);
-                }
-                const { amount, from, to } = item.value;
-                const conversion = convertAmount(snapshot.value, amount, from, to);
-                return conversion.ok ? conversionOutput(conversion.value) : failedItem(request, conversion.error);
-            });
-            const conversions = outputs.filter(
-                (output): output is ReturnType<typeof conversionOutput> => !('error' in output),
-            );
-            const targets = new Set(conversions.map((conversion) => conversion.to));
-            const [target] = targets;
-            // The rounded lines summed, as a ledger posts them; exact, then checked to fit a JSON number.
-            const sum = roundHalfUp(
-                conversions.reduce(
-                    (running, conversion) => add(running, decimalToRational(conversion.resultRounded)),
-                    fromInteger(0),
-                ),
-                2,
-            );
-            const total =
-                target === undefined || targets.size !== 1 || !Number.isFinite(sum)
-                    ? {}
-                    : { total: { to: target, resultRounded: sum } };
-            return success({
-                items: outputs,
-                converted: conversions.length,
-                skipped: outputs.length - conversions.length,
-                ...total,
-            });
-        },
+        async ({ items }) => success(await convertMany(items, deps)),
     );
 
     server.registerTool(

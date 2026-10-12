@@ -126,7 +126,7 @@ describe('describeError', () => {
                     latestEffectiveDate: date('2026-10-08'),
                     today: date('2026-10-08'),
                 },
-                /2026-10-09 yet\. Today in Tbilisi is 2026-10-08; the latest date that can have a rate is 2026-10-09, after about 17:00 Tbilisi time\. The latest published rate is valid from 2026-10-08\. For a range, end it at today\./,
+                /^NBG has not published a rate for 2026-10-09 yet\. Today in Tbilisi is 2026-10-08; the furthest date that can have a rate is tomorrow, 2026-10-09, and only once NBG has published it\. NBG sets rates on business days around 17:00 Tbilisi time, valid from the next calendar day\. A Sunday, a Monday or the day after a public holiday gets no table of its own and carries the last one once it is today\. The latest published rate is valid from 2026-10-08\. For a range, end it at today\.$/,
             ],
             [
                 {
@@ -135,7 +135,7 @@ describe('describeError', () => {
                     latestEffectiveDate: undefined,
                     today: date('2026-10-08'),
                 },
-                /2099-01-01 yet\. Today in Tbilisi is 2026-10-08; the latest date that can have a rate is 2026-10-09, after about 17:00 Tbilisi time\. For a range, end it at today\./,
+                /^NBG has not published a rate for 2099-01-01 yet\. Today in Tbilisi is 2026-10-08; the furthest date that can have a rate is tomorrow, 2026-10-09, and only once NBG has published it\. NBG sets rates on business days around 17:00 Tbilisi time, valid from the next calendar day\. A Sunday, a Monday or the day after a public holiday gets no table of its own and carries the last one once it is today\. For a range, end it at today\.$/,
             ],
             [{ kind: 'upstream_unavailable', detail: 'HTTP 503' }, /503.*retried/],
             [{ kind: 'upstream_shape_changed', detail: 'currencies: expected array' }, /currencies.*issues/],
@@ -201,7 +201,9 @@ describe('createServer', () => {
         expect(byName.get('nbg_list_currencies')).toContain('1.6452 GEL per 100 JPY');
         expect(byName.get('nbg_list_currencies')).toContain('nbg_get_rates');
         for (const name of ['nbg_convert', 'nbg_convert_many']) {
-            expect(byName.get(name)).toContain('Show resultRounded as the amount');
+            expect(byName.get(name)).toContain(
+                'Show resultRounded as the amount; result is the unrounded value for further calculation.',
+            );
         }
         await client.close();
     });
@@ -676,7 +678,7 @@ describe('nbg_convert_many', () => {
         await client.close();
     });
 
-    it('asks the service once per distinct date and fails only the items of a date NBG has not published', async () => {
+    it('asks the service once per distinct date and goes on after a date NBG has not published', async () => {
         const { service: table, requests } = tableService();
         const service: RatesService = {
             getSnapshot(args) {
@@ -702,24 +704,25 @@ describe('nbg_convert_many', () => {
             name: 'nbg_convert_many',
             arguments: {
                 items: [
+                    { amount: 3, from: 'EUR', to: 'GEL', date: '2026-10-09' },
                     { amount: 1, from: 'EUR', to: 'GEL', date: '2026-10-06' },
                     { amount: 2, from: 'EUR', to: 'GEL', date: '2026-10-07' },
-                    { amount: 3, from: 'EUR', to: 'GEL', date: '2026-10-09' },
                     { amount: 4, from: 'EUR', to: 'GEL', date: '2026-10-06' },
                 ],
             },
         });
 
-        expect(requests.map((request) => request.date)).toEqual(['2026-10-06', '2026-10-07', '2026-10-09']);
+        // The unpublished date is asked first; a failure that is not an outage must not stop the later dates.
+        expect(requests.map((request) => request.date)).toEqual(['2026-10-09', '2026-10-06', '2026-10-07']);
         const output = convertManyOutput.parse(result.structuredContent);
         expect(output.items.map((item) => ('error' in item ? 'error' : item.resultRounded))).toEqual([
+            'error',
             2.93,
             5.85,
-            'error',
             11.71,
         ]);
-        expect(output.items[2]).toMatchObject({ amount: 3, date: '2026-10-09' });
-        expect(JSON.stringify(output.items[2])).toContain('not published a rate for 2026-10-09');
+        expect(output.items[0]).toMatchObject({ amount: 3, date: '2026-10-09' });
+        expect(JSON.stringify(output.items[0])).toContain('not published a rate for 2026-10-09');
         expect(output).toMatchObject({ converted: 3, skipped: 1, total: { to: 'GEL', resultRounded: 20.49 } });
         await client.close();
     });
@@ -741,7 +744,7 @@ describe('nbg_convert_many', () => {
         await client.close();
     });
 
-    it('stops asking NBG after one outage and fails the remaining dates with the same error', async () => {
+    it('stops asking NBG after one outage and fails the later dates, keeping the ones fetched before', async () => {
         const { service: table, requests } = tableService();
         const outage: RatesError = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
         const service: RatesService = {
@@ -760,6 +763,7 @@ describe('nbg_convert_many', () => {
             name: 'nbg_convert_many',
             arguments: {
                 items: [
+                    { amount: 5, from: 'USD', to: 'GEL', date: '2026-10-05' },
                     { amount: 1, from: 'USD', to: 'GEL', date: '2026-10-07' },
                     { amount: 2, from: 'USD', to: 'GEL', date: '2026-10-06' },
                     { amount: 3, from: 'USD', to: 'GEL', date: '2026-10-07' },
@@ -767,16 +771,18 @@ describe('nbg_convert_many', () => {
             },
         });
 
-        // 2026-10-06 was never requested: after an outage every later date gets the same error without a wait.
-        expect(requests.map((request) => request.date)).toEqual(['2026-10-07']);
+        // 2026-10-05 answered before the outage; 2026-10-06 was never requested: after an outage every later date
+        // gets the same error without a wait.
+        expect(requests.map((request) => request.date)).toEqual(['2026-10-05', '2026-10-07']);
         const output = convertManyOutput.parse(result.structuredContent);
-        expect(output.items.map((item) => ('error' in item ? item.error : 'ok'))).toEqual([
+        expect(output.items.map((item) => ('error' in item ? item.error : item.resultRounded))).toEqual([
+            13.01,
             describeError(outage),
             describeError(outage),
             describeError(outage),
         ]);
-        expect(output).toMatchObject({ converted: 0, skipped: 3 });
-        expect(output).not.toHaveProperty('total');
+        // 5 * 2.6025 = 13.0125 posts as 13.01; the total covers that one converted item, so it is partial.
+        expect(output).toMatchObject({ converted: 1, skipped: 3, total: { to: 'GEL', resultRounded: 13.01 } });
         await client.close();
     });
 

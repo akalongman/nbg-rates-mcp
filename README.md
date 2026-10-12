@@ -323,7 +323,7 @@ A tool that cannot answer returns an error result whose text says what went wron
 - the currency is not a three-letter code (the message names USD, EUR and GEL as examples), or NBG did not quote it on the requested date or range (`nbg_get_rates` lists such codes in `unknownCodes` instead); NBG has added and dropped currencies over the years, so the code may still have rates on other dates;
 - a conversion result is too large to represent as a number;
 - NBG has no rate in force on the date (the archive starts on 1995-10-14, and a currency has no rate before NBG first quoted it, after NBG stopped quoting it, or where NBG's records have a gap);
-- NBG has not published a rate for the date yet; the message names today in Tbilisi, the latest date that can have a rate, and, when known, from which date the latest published rate is valid. A history range that reaches such a date fails as a whole: end it at today;
+- NBG has not published a rate for the date yet; the message names today in Tbilisi, says that tomorrow is the furthest date that can have a rate and only once NBG has published it, and, when known, names the date from which the latest published rate is valid. A history range that reaches such a date fails as a whole: end it at today;
 - NBG did not respond usably; the request can be retried;
 - the NBG response did not have the expected shape, which means the NBG endpoint may have changed; please [open an issue](https://github.com/akalongman/nbg-rates-mcp/issues) with the package version.
 

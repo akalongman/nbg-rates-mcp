@@ -139,17 +139,21 @@ describe('nbg-rates-mcp over stdio', () => {
             name: 'nbg_convert_many',
             arguments: {
                 items: [
-                    { amount: 100, from: 'USD', to: 'GEL', date: '2026-10-06' },
-                    { amount: 200, from: 'EUR', to: 'GEL', date: '2026-10-06' },
-                    { amount: 300, from: 'USD', to: 'GEL', date: '2026-10-04' },
+                    { amount: 100, from: 'USD', to: 'GEL', date: '2026-10-01' },
+                    { amount: 200, from: 'EUR', to: 'GEL', date: '2026-10-01' },
+                    { amount: 300, from: 'USD', to: 'GEL', date: '2026-10-02' },
                 ],
             },
         });
         const output = convertManyOutput.parse(result.structuredContent);
         expect(output).toMatchObject({ converted: 3, skipped: 0, total: { to: 'GEL' } });
         expect(output.items.every((item) => !('error' in item))).toBe(true);
-        // 2026-10-06 is cached by the earlier tests; 2026-10-04 too. At most one request per distinct date.
-        expect(server.requests.length - before).toBeLessThanOrEqual(2);
+        // No other test in this file asks for 2026-10-01 or 2026-10-02 in English (the history test reads the CSV
+        // export, which bypasses the table cache), so each distinct date costs exactly one request.
+        expect(server.requests.slice(before).map((request) => request.url)).toEqual([
+            '/gw/api/ct/monetarypolicy/currencies/en/json?date=2026-10-01',
+            '/gw/api/ct/monetarypolicy/currencies/en/json?date=2026-10-02',
+        ]);
     });
 
     it('lists currencies', async () => {
