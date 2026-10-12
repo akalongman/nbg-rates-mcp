@@ -11,6 +11,8 @@ This is an independent open-source project, not affiliated with the National Ban
 - Give me the EUR rate for every day of September 2026 as a table.
 - How many US dollars is 1 euro today, at NBG rates?
 
+Write the date with the month as a word, "10 September 2026": 10/09/2026 reads as two different dates.
+
 For the second question the answer is: 27 September 2026 is a Sunday, so the rate in force is the one NBG set for Saturday 26 September, 2.6080 GEL per USD, still valid on Sunday; 1,500 USD = 3,912.00 GEL, and the answer says the rate is carried over from the 26th.
 
 In Claude Desktop the "+" menu of a chat also lists four ready-made questions from this server: today's rates, the rate on a date, converting an amount, and a rates table for a month.
@@ -18,6 +20,8 @@ In Claude Desktop the "+" menu of a chat also lists four ready-made questions fr
 ## Which rate you get
 
 Georgian accounting and tax reporting use the official NBG rate in force on the date of the transaction. This server returns exactly that rate, the one shown on nbg.gov.ge for the day you name.
+
+Converted amounts come rounded half up to two decimals (`resultRounded`), the way a ledger posts them, computed exactly from NBG's published figures.
 
 NBG sets rates on business days around 17:00 Tbilisi time, valid from the next calendar day. A Sunday, a Monday or the day after a public holiday has no rate of its own and keeps the last one set; the answer says so (`carriedOver`) and names the day that rate took effect. A date NBG has not published yet, including tomorrow before about 17:00 Tbilisi time, is answered with an error, never a guess.
 
@@ -163,12 +167,86 @@ Inputs:
 Output:
 
 - `amount`, `from`, `to`: the request, with the codes in upper case.
-- `result`: the converted amount, unrounded. Round it for display.
+- `result`: the converted amount, unrounded, for further calculation.
+- `resultRounded`: `result` rounded half up to two decimals, computed exactly from NBG's published figures; the amount to show. JSON drops trailing zeros, so 3.90 arrives as `3.9`.
 - `rate`: one unit of `from` expressed in `to`.
 - `via`: `direct` when either side is GEL (or both codes are the same), `GEL` when a pair without GEL is converted through GEL.
 - `requestedDate`, `effectiveDate`, `carriedOver`: as in `nbg_get_rates`.
 
 GEL to GEL is the identity and needs no NBG rate, so it answers for any valid date. A code NBG did not quote on the date is an error.
+
+### `nbg_convert_many`
+
+Converts a list of amounts, each at the official NBG rate in force on its own date: one call for a list of invoices. Items are answered independently, so a bad date or code fails only its own item. The server makes at most one NBG request per distinct date, one date after another; once NBG stops answering, the dates not yet asked fail with the same error without a request.
+
+Inputs:
+
+| Name    | Required | Description                                                                              |
+| ------- | -------- | ---------------------------------------------------------------------------------------- |
+| `items` | yes      | 1 to 100 entries of `{ amount, from, to, date? }`, each with the rules of `nbg_convert`. |
+
+Output:
+
+- `items`: one entry per input, in input order. A converted item is the `nbg_convert` output, with `resultRounded`. A failed item is `{ amount, from, to, date, error }`: the item as given, without `date` when it had none, and `error`, the message that says what went wrong (see [Errors](#errors)).
+- `converted`, `skipped`: how many items were converted and how many failed.
+- `total`: `{ to, resultRounded }`, present only when at least one item was converted, every converted item has the same target currency, and the sum is a finite number: the sum of their `resultRounded` values, computed exactly, the way a ledger sums posted lines. It covers the converted items only, so it is partial when `skipped` is not 0.
+
+Worked example: 10 USD and 1.5 USD to GEL on 2026-10-10, and 100 USD to GEL on 2026-13-01, a date that does not exist. The request
+
+```json
+{
+  "items": [
+    { "amount": 10, "from": "USD", "to": "GEL", "date": "2026-10-10" },
+    { "amount": 1.5, "from": "USD", "to": "GEL", "date": "2026-10-10" },
+    { "amount": 100, "from": "USD", "to": "GEL", "date": "2026-13-01" }
+  ]
+}
+```
+
+returns
+
+```json
+{
+  "items": [
+    {
+      "amount": 10,
+      "from": "USD",
+      "to": "GEL",
+      "result": 26.005,
+      "resultRounded": 26.01,
+      "rate": 2.6005,
+      "via": "direct",
+      "requestedDate": "2026-10-10",
+      "effectiveDate": "2026-10-10",
+      "carriedOver": false
+    },
+    {
+      "amount": 1.5,
+      "from": "USD",
+      "to": "GEL",
+      "result": 3.9007499999999995,
+      "resultRounded": 3.9,
+      "rate": 2.6005,
+      "via": "direct",
+      "requestedDate": "2026-10-10",
+      "effectiveDate": "2026-10-10",
+      "carriedOver": false
+    },
+    {
+      "amount": 100,
+      "from": "USD",
+      "to": "GEL",
+      "date": "2026-13-01",
+      "error": "2026-13-01 is not a valid calendar date (not a real calendar date); use YYYY-MM-DD."
+    }
+  ],
+  "converted": 2,
+  "skipped": 1,
+  "total": { "to": "GEL", "resultRounded": 29.91 }
+}
+```
+
+The total, 26.01 + 3.9 = 29.91 GEL, covers the two converted items; `skipped` is 1, so it is partial.
 
 ### `nbg_list_currencies`
 
@@ -201,6 +279,7 @@ Output:
 
 - `currency`, `from`, `to`: the request, with the code in upper case.
 - `days`: one entry per calendar day. A day whose own rate is in force is `{ date, rate }`, with `rate` in GEL per one unit. A carried-over day adds `effectiveDate`, the day its rate took effect, and `carriedOver: true`; an absent `effectiveDate` means the rate took effect on `date` itself. A full year stays near 6,000 tokens.
+- `summary`: `first`, `last`, `change` (last minus first), `min` and `max` with `minDate` and `maxDate` (first occurrence), and `average`, the arithmetic mean over every calendar day of the range, carried-over days included. `change` and `average` are exact, rounded half up to the decimals NBG's quantity gives the currency (4 for USD, 7 for AMD).
 
 For example, USD from Friday 2026-10-02 to Tuesday 2026-10-06 (Saturday has its own rate; Sunday and Monday carry it):
 
@@ -215,7 +294,17 @@ For example, USD from Friday 2026-10-02 to Tuesday 2026-10-06 (Saturday has its 
     { "date": "2026-10-04", "rate": 2.6039, "effectiveDate": "2026-10-03", "carriedOver": true },
     { "date": "2026-10-05", "rate": 2.6039, "effectiveDate": "2026-10-03", "carriedOver": true },
     { "date": "2026-10-06", "rate": 2.6032 }
-  ]
+  ],
+  "summary": {
+    "first": 2.6042,
+    "last": 2.6032,
+    "change": -0.001,
+    "min": 2.6032,
+    "minDate": "2026-10-06",
+    "max": 2.6042,
+    "maxDate": "2026-10-02",
+    "average": 2.6038
+  }
 }
 ```
 
@@ -231,10 +320,10 @@ A tool that cannot answer returns an error result whose text says what went wron
 
 - the date is not a real calendar date in the form `YYYY-MM-DD`, or a history range ends before it starts;
 - a history range is longer than 366 days;
-- the currency is not a three-letter code, or NBG did not quote it on the requested date or range (`nbg_get_rates` lists such codes in `unknownCodes` instead); NBG has added and dropped currencies over the years, so the code may still have rates on other dates;
+- the currency is not a three-letter code (the message names USD, EUR and GEL as examples), or NBG did not quote it on the requested date or range (`nbg_get_rates` lists such codes in `unknownCodes` instead); NBG has added and dropped currencies over the years, so the code may still have rates on other dates;
 - a conversion result is too large to represent as a number;
 - NBG has no rate in force on the date (the archive starts on 1995-10-14, and a currency has no rate before NBG first quoted it, after NBG stopped quoting it, or where NBG's records have a gap);
-- NBG has not published a rate for the date yet; when the latest published rate is known, the message says from which date it is valid;
+- NBG has not published a rate for the date yet; the message names today in Tbilisi, the latest date that can have a rate, and, when known, from which date the latest published rate is valid. A history range that reaches such a date fails as a whole: end it at today;
 - NBG did not respond usably; the request can be retried;
 - the NBG response did not have the expected shape, which means the NBG endpoint may have changed; please [open an issue](https://github.com/akalongman/nbg-rates-mcp/issues) with the package version.
 

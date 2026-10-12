@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.4.0 - 2026-10-12
+
+Added: `nbg_convert_many`, a batch of conversions, each at the rate of its own date, with per-item errors and a total; `resultRounded` on every conversion, computed exactly and rounded half up to two decimals; a `summary` (first, last, change, lowest, highest, calendar-day average) on `nbg_rate_history`.
+
+Changed: descriptions and prompts ask for NBG's quoted form (for example 1.6452 GEL per 100 JPY) beside the per-unit rate; a value that is not a currency code gets its own error text; the future-date error names the last date that can have a rate; the monthly prompt ends at today for the current month; the today's-rates prompt adds TRY.
+
 ## 0.3.0 - 2026-10-10
 
 Added: four prompts (today's rates, rate on a date, convert an amount, rates table for a month), shown by clients such as Claude Desktop as ready-made questions; an icon and a long description in the Claude Desktop bundle.

@@ -86,6 +86,18 @@ const DATE_RULES =
     'returned with carriedOver true and effectiveDate set to the day it took effect. Quote effectiveDate when carriedOver is true. ' +
     'A date whose rate NBG has not published yet returns an error, never a guess.';
 
+const DISPLAY_RULE =
+    "When nbgQuantity is not 1, state NBG's quoted form first, nbgRate GEL per nbgQuantity units " +
+    '(for example 1.6452 GEL per 100 JPY), and the per-unit rate beside it: that quoted form is what nbg.gov.ge ' +
+    'and accounting software show.';
+
+const AMOUNT_RULE = 'Show resultRounded as the amount; result is the unrounded value for further calculation.';
+
+/** nbg_list_currencies carries quantities but no rates, so it cannot show the quoted form itself. */
+const LIST_RULE =
+    'nbgQuantity is the unit count NBG quotes the raw rate for (JPY is quoted as 1.6452 GEL per 100 JPY); ' +
+    'for the rates themselves call nbg_get_rates.';
+
 function failure(error: RatesError) {
     return { content: [{ type: 'text' as const, text: describeError(error) }], isError: true };
 }
@@ -208,7 +220,10 @@ function failedItem(request: ConvertRequest, error: RatesError) {
 export const SERVER_INSTRUCTIONS =
     'Official exchange rates of the Georgian lari (GEL) set by the National Bank of Georgia (NBG). ' +
     'Use these tools for any question about GEL rates, converting to or from GEL, or historical NBG rates ' +
-    'on a date or over a range. Dates are Tbilisi calendar days; quote effectiveDate when carriedOver is true.';
+    'on a date or over a range. Dates are Tbilisi calendar days; quote effectiveDate when carriedOver is true. ' +
+    AMOUNT_RULE +
+    ' ' +
+    DISPLAY_RULE;
 
 /** Display fields of the server identity; a test keeps them equal to server.json. */
 const SERVER_IDENTITY = {
@@ -231,7 +246,9 @@ export function createServer(deps: ServerDeps): McpServer {
                 'Official National Bank of Georgia (NBG) exchange rates of the Georgian lari (GEL) in force on one calendar date. ' +
                 'Every rate is GEL per ONE unit of the currency (NBG quotes some currencies per 10, 100, 1000 or 10000 units; ' +
                 'the raw pair is returned as nbgQuantity and nbgRate). ' +
-                DATE_RULES,
+                DATE_RULES +
+                ' ' +
+                DISPLAY_RULE,
             inputSchema: getRatesInput,
             outputSchema: getRatesOutput,
             annotations: READ_ONLY,
@@ -261,7 +278,8 @@ export function createServer(deps: ServerDeps): McpServer {
             description:
                 'Converts an amount between two currencies using the official NBG rate in force on a calendar date. ' +
                 'Either side may be GEL; a pair without GEL is converted through GEL (via: "GEL"). ' +
-                'The result is unrounded: round it for display. ' +
+                AMOUNT_RULE +
+                ' ' +
                 DATE_RULES,
             inputSchema: convertInput,
             outputSchema: convertOutput,
@@ -294,7 +312,9 @@ export function createServer(deps: ServerDeps): McpServer {
                 'list of invoices. Items are answered independently; a bad date or code fails only its item, with the ' +
                 'error text in that item. total is present when every converted item has the same target currency ' +
                 'and covers the converted items only. Once NBG stops answering, the remaining dates fail with the ' +
-                'same error without being asked. Show resultRounded as the amounts. ' +
+                'same error without being asked. ' +
+                AMOUNT_RULE +
+                ' ' +
                 DATE_RULES,
             inputSchema: convertManyInput,
             outputSchema: convertManyOutput,
@@ -375,7 +395,8 @@ export function createServer(deps: ServerDeps): McpServer {
             title: 'NBG currency list',
             description:
                 'Lists every currency NBG publishes a GEL rate for today, with its name and the unit quantity NBG quotes it in. ' +
-                'NBG quoted other currencies in the past, so a code missing here may still have historical rates.',
+                'NBG quoted other currencies in the past, so a code missing here may still have historical rates. ' +
+                LIST_RULE,
             inputSchema: listCurrenciesInput,
             outputSchema: listCurrenciesOutput,
             annotations: READ_ONLY,

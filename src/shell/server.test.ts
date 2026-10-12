@@ -178,10 +178,28 @@ describe('createServer', () => {
         expect(instructions).toBe(
             'Official exchange rates of the Georgian lari (GEL) set by the National Bank of Georgia (NBG). ' +
                 'Use these tools for any question about GEL rates, converting to or from GEL, or historical NBG rates ' +
-                'on a date or over a range. Dates are Tbilisi calendar days; quote effectiveDate when carriedOver is true.',
+                'on a date or over a range. Dates are Tbilisi calendar days; quote effectiveDate when carriedOver is true. ' +
+                'Show resultRounded as the amount; result is the unrounded value for further calculation. ' +
+                "When nbgQuantity is not 1, state NBG's quoted form first, nbgRate GEL per nbgQuantity units " +
+                '(for example 1.6452 GEL per 100 JPY), and the per-unit rate beside it: that quoted form is what ' +
+                'nbg.gov.ge and accounting software show.',
         );
-        expect(instructions?.length).toBeLessThan(400);
+        expect(instructions?.length).toBeLessThan(800);
 
+        await client.close();
+    });
+
+    it('tells the model to show the quoted form of a per-100 currency and the rounded amount', async () => {
+        const client = await connectedClient();
+        const { tools } = await client.listTools();
+        const byName = new Map(tools.map((tool) => [tool.name, tool.description ?? '']));
+        expect(byName.get('nbg_get_rates')).toContain('1.6452 GEL per 100 JPY');
+        // The list carries no rates, so its rule points at nbg_get_rates instead of asking for a quoted form.
+        expect(byName.get('nbg_list_currencies')).toContain('1.6452 GEL per 100 JPY');
+        expect(byName.get('nbg_list_currencies')).toContain('nbg_get_rates');
+        for (const name of ['nbg_convert', 'nbg_convert_many']) {
+            expect(byName.get(name)).toContain('Show resultRounded as the amount');
+        }
         await client.close();
     });
 

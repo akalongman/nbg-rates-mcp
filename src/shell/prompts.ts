@@ -27,15 +27,15 @@ export const PROMPTS: ReadonlyArray<PromptDefinition> = [
         arguments: [
             {
                 name: 'currencies',
-                description: 'Comma-separated ISO codes; USD, EUR and GBP when empty',
+                description: 'Comma-separated ISO codes; USD, EUR, GBP and TRY when empty',
                 required: false,
             },
         ],
         text:
-            "Give me today's official National Bank of Georgia rates for ${arguments.currencies} (USD, EUR and GBP when " +
-            'none are named) with nbg_get_rates. For each currency report the rate in GEL per one unit and the change ' +
-            'versus the previous rate, then the date the rates took effect and whether they are carried over from an ' +
-            'earlier day.',
+            "Give me today's official National Bank of Georgia rates for ${arguments.currencies} (USD, EUR, GBP and " +
+            'TRY when none are named) with nbg_get_rates. For each currency report the rate in GEL per one unit and ' +
+            'the change versus the previous rate, then the date the rates took effect and whether they are carried ' +
+            'over from an earlier day.',
     },
     {
         name: 'nbg_rate_on_date',
@@ -63,7 +63,7 @@ export const PROMPTS: ReadonlyArray<PromptDefinition> = [
         text:
             'Convert ${arguments.amount} ${arguments.from} to ${arguments.to} at the official National Bank of Georgia ' +
             'rate in force on ${arguments.date} (today when no date is given) with nbg_convert. Show the rate used, ' +
-            'the date it took effect, whether it is carried over, and the result rounded to 2 decimal places.',
+            'the date it took effect, whether it is carried over, and the result as resultRounded.',
     },
     {
         name: 'nbg_monthly_rates',
@@ -74,10 +74,11 @@ export const PROMPTS: ReadonlyArray<PromptDefinition> = [
             { name: 'month', description: 'Month, YYYY-MM', required: true },
         ],
         text:
-            'Using nbg_rate_history from the first to the last day of ${arguments.month}, give me a table of the ' +
-            'official National Bank of Georgia rate of ${arguments.currency} for every day of the month, in GEL per ' +
-            'one unit, marking the days whose rate is carried over from an earlier day. Below the table give the ' +
-            'first, last, lowest and highest rate of the month.',
+            'Using nbg_rate_history from the first day of ${arguments.month} to its last day, or to today when the ' +
+            'month is not over, give me a table of the official National Bank of Georgia rate of ' +
+            '${arguments.currency} for every day, in GEL per one unit, marking the days whose rate is carried over ' +
+            'from an earlier day. Below the table report the summary the tool returns: first, last, change, lowest ' +
+            'and highest rate with their dates, and the average over the calendar days.',
     },
 ];
 
