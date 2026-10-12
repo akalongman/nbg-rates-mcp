@@ -44,7 +44,10 @@ export async function serveHttp(
     }
 
     const server: Server = createServer((request, response) => {
-        respond(request, response).catch(() => {
+        respond(request, response).catch((error: unknown) => {
+            const name = error instanceof Error ? error.constructor.name : 'Error';
+            // Never the message: it can quote the request URL or headers.
+            console.error(`${name} http handler failed`);
             if (!response.headersSent) {
                 response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
             }
