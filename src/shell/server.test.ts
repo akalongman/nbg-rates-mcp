@@ -406,6 +406,24 @@ describe('createServer', () => {
         await unpublishedClient.close();
     });
 
+    it('answers nbg_convert with resultRounded beside the unrounded result', async () => {
+        const { service } = tableService();
+        const client = await connectedClient({ service });
+
+        const result = await client.callTool({
+            name: 'nbg_convert',
+            arguments: { amount: 10, from: 'USD', to: 'GEL', date: '2026-10-07' },
+        });
+        expect(result.structuredContent).toMatchObject({ result: 10 * 2.6025, resultRounded: 26.03 });
+
+        const identity = await client.callTool({
+            name: 'nbg_convert',
+            arguments: { amount: 5.005, from: 'GEL', to: 'GEL', date: '2026-10-07' },
+        });
+        expect(identity.structuredContent).toMatchObject({ result: 5.005, resultRounded: 5.01, rate: 1 });
+        await client.close();
+    });
+
     it('rejects a conversion whose result overflows instead of answering it', async () => {
         const { service } = tableService();
         const client = await connectedClient({ service });

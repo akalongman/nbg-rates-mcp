@@ -81,6 +81,11 @@ export const convertOutput = z.object({
     from: z.string(),
     to: z.string(),
     result: z.number().describe('Unrounded'),
+    resultRounded: z
+        .number()
+        .describe(
+            'result rounded half up to 2 decimals from the exact value; the amount to show. JSON drops trailing zeros, so 3.90 arrives as 3.9.',
+        ),
     rate: z.number().describe('One unit of "from" expressed in "to"'),
     via: z.enum(['direct', 'GEL']),
     requestedDate: z.string(),

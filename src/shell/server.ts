@@ -1,5 +1,5 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
-import { convertAmount } from '../core/convert.js';
+import { convertAmount, roundedAmount } from '../core/convert.js';
 import { GEL, parseCurrencyCode } from '../core/currency-code.js';
 import { NBG_ARCHIVE_START, TBILISI_TIME_ZONE, parseCalendarDate, todayIn } from '../core/dates.js';
 import {
@@ -211,6 +211,7 @@ export function createServer(deps: ServerDeps): McpServer {
                     from: GEL,
                     to: GEL,
                     result: amount,
+                    resultRounded: roundedAmount(amount),
                     rate: 1,
                     via: 'direct' as const,
                     requestedDate: resolved.value,

@@ -1,4 +1,5 @@
 import { GEL } from './currency-code.js';
+import { decimalToRational, divide, fromInteger, multiply, roundHalfUp, type Rational } from './decimal.js';
 import {
     err,
     ok,
@@ -9,15 +10,37 @@ import {
     type Result,
 } from './types.js';
 
-function rateInGel(snapshot: RatesSnapshot, code: CurrencyCode): Result<number, RatesError> {
+interface Quote {
+    /** GEL per one unit, as a float, for the unrounded fields. */
+    readonly rate: number;
+    /** The exact quote: nbgRate GEL per nbgQuantity units; GEL is 1 per 1. */
+    readonly nbgRate: number;
+    readonly nbgQuantity: number;
+}
+
+function quoteOf(snapshot: RatesSnapshot, code: CurrencyCode): Result<Quote, RatesError> {
     if (code === GEL) {
-        return ok(1);
+        return ok({ rate: 1, nbgRate: 1, nbgQuantity: 1 });
     }
     const entry = snapshot.rates.find((candidate) => candidate.code === code);
     if (entry === undefined) {
         return err({ kind: 'unknown_currency', code });
     }
-    return ok(entry.rate);
+    return ok({ rate: entry.rate, nbgRate: entry.nbgRate, nbgQuantity: entry.nbgQuantity });
+}
+
+/** amount * fromRate / fromQuantity * toQuantity / toRate, exactly. */
+function exactResult(amount: number, from: Quote, to: Quote): Rational {
+    const inGel = divide(
+        multiply(decimalToRational(amount), decimalToRational(from.nbgRate)),
+        fromInteger(from.nbgQuantity),
+    );
+    return divide(multiply(inGel, fromInteger(to.nbgQuantity)), decimalToRational(to.nbgRate));
+}
+
+/** The amount as a ledger would post it: half up to two decimals. */
+export function roundedAmount(amount: number): number {
+    return roundHalfUp(decimalToRational(amount), 2);
 }
 
 export function convertAmount(
@@ -26,26 +49,30 @@ export function convertAmount(
     from: CurrencyCode,
     to: CurrencyCode,
 ): Result<Conversion, RatesError> {
-    const fromRate = rateInGel(snapshot, from);
-    if (!fromRate.ok) {
-        return fromRate;
+    const fromQuote = quoteOf(snapshot, from);
+    if (!fromQuote.ok) {
+        return fromQuote;
     }
-    const toRate = rateInGel(snapshot, to);
-    if (!toRate.ok) {
-        return toRate;
+    const toQuote = quoteOf(snapshot, to);
+    if (!toQuote.ok) {
+        return toQuote;
     }
     const identical = from === to;
-    const rate = identical ? 1 : fromRate.value / toRate.value;
+    const rate = identical ? 1 : fromQuote.value.rate / toQuote.value.rate;
     const via: Conversion['via'] = identical || from === GEL || to === GEL ? 'direct' : 'GEL';
     const result = identical ? amount : amount * rate;
     if (!Number.isFinite(result)) {
         return err({ kind: 'result_out_of_range', amount, from, to });
     }
+    const resultRounded = identical
+        ? roundedAmount(amount)
+        : roundHalfUp(exactResult(amount, fromQuote.value, toQuote.value), 2);
     return ok({
         amount,
         from,
         to,
         result,
+        resultRounded,
         rate,
         via,
         requestedDate: snapshot.requestedDate,

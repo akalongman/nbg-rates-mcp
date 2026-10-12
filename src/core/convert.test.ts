@@ -27,6 +27,7 @@ describe('convertAmount', () => {
                 from: 'USD',
                 to: 'GEL',
                 result: 260.25,
+                resultRounded: 260.25,
                 rate: 2.6025,
                 via: 'direct',
                 requestedDate: '2026-10-07',
@@ -97,6 +98,97 @@ describe('convertAmount', () => {
                     }
                     const back = convertAmount(snapshot, there.value.result, to, from);
                     return back.ok && Math.abs(back.value.result - amount) <= Math.abs(amount) * 1e-9 + 1e-9;
+                },
+            ),
+        );
+    });
+
+    it('rounds the exact product half up to two decimals, not the float', () => {
+        // 1.5 * 2.6025 = 3.90375: below the half tetri, so 3.90 (which JSON carries as 3.9).
+        const tie = convertAmount(snapshot, 1.5, code('USD'), GEL);
+        expect(tie.ok && tie.value.resultRounded).toBe(3.9);
+        // 10 * 2.6025 = 26.025, a tie at the third decimal: half up gives 26.03, toFixed would give 26.02.
+        const half = convertAmount(snapshot, 10, code('USD'), GEL);
+        expect(half.ok && half.value.resultRounded).toBe(26.03);
+        const negative = convertAmount(snapshot, -10, code('USD'), GEL);
+        expect(negative.ok && negative.value.resultRounded).toBe(-26.03);
+        // 1,000,000 AMD at 7.1748 per 1000 is 7174.8 exactly.
+        const dram = convertAmount(snapshot, 1_000_000, code('AMD'), GEL);
+        expect(dram.ok && dram.value.resultRounded).toBe(7174.8);
+    });
+
+    it('rounds a division by a rate and a cross pair from the exact quotient', () => {
+        // 100 / 2.6025 = 38.4245916...
+        const toUsd = convertAmount(snapshot, 100, GEL, code('USD'));
+        expect(toUsd.ok && toUsd.value.resultRounded).toBe(38.42);
+        // 100 * 2.6025 / 2.9263 = 88.9348...
+        const cross = convertAmount(snapshot, 100, code('USD'), code('EUR'));
+        expect(cross.ok && cross.value.resultRounded).toBe(88.93);
+        const same = convertAmount(snapshot, 42.005, code('USD'), code('USD'));
+        expect(same.ok && same.value.resultRounded).toBe(42.01);
+        // An exact tie in a quotient: 0.0130125 GEL is 0.005 USD at 2.6025, half up to 0.01, away from zero.
+        const tie = convertAmount(snapshot, 0.0130125, GEL, code('USD'));
+        expect(tie.ok && tie.value.resultRounded).toBe(0.01);
+        const negativeTie = convertAmount(snapshot, -0.0130125, GEL, code('USD'));
+        expect(negativeTie.ok && negativeTie.value.resultRounded).toBe(-0.01);
+    });
+
+    it('matches an integer-only oracle for any amount and NBG-shaped quote to GEL', () => {
+        // The oracle scales amount and rate to integers, multiplies, and rounds half up with integer division.
+        fc.assert(
+            fc.property(
+                fc.integer({ min: -1_000_000_000, max: 1_000_000_000 }),
+                fc.integer({ min: 0, max: 6 }),
+                fc.integer({ min: 1, max: 99_999 }),
+                fc.integer({ min: 1, max: 4 }),
+                fc.constantFrom(1, 10, 100, 1000, 10000),
+                (amountScaled, amountDecimals, rateScaled, rateDecimals, quantity) => {
+                    const amount = Number(`${amountScaled}e-${amountDecimals}`);
+                    const nbgRate = Number(`${rateScaled}e-${rateDecimals}`);
+                    const quoted: RatesSnapshot = {
+                        ...snapshot,
+                        rates: [
+                            {
+                                code: code('XYZ'),
+                                name: 'Test',
+                                rate: nbgRate / quantity,
+                                diff: 0,
+                                nbgQuantity: quantity,
+                                nbgRate,
+                            },
+                        ],
+                    };
+                    const result = convertAmount(quoted, amount, code('XYZ'), GEL);
+                    const divisor = 10n ** BigInt(amountDecimals + rateDecimals) * BigInt(quantity);
+                    const product = BigInt(amountScaled) * BigInt(rateScaled);
+                    const magnitude = product < 0n ? -product : product;
+                    const cents = (magnitude * 200n + divisor) / (2n * divisor);
+                    const expected = Number(cents) / 100;
+                    expect(result.ok && result.value.resultRounded).toBe(
+                        product < 0n && cents !== 0n ? -expected : expected,
+                    );
+                },
+            ),
+        );
+    });
+
+    it('keeps resultRounded within half a tetri of result, up to float error, for any pair', () => {
+        const codes = [GEL, code('USD'), code('EUR'), code('AMD')];
+        fc.assert(
+            fc.property(
+                fc.double({ min: -1e9, max: 1e9, noNaN: true, noDefaultInfinity: true }),
+                fc.constantFrom(...codes),
+                fc.constantFrom(...codes),
+                (amount, from, to) => {
+                    const result = convertAmount(snapshot, amount, from, to);
+                    expect(result.ok).toBe(true);
+                    if (result.ok) {
+                        // result is at most three float operations from the exact value: a few ulps, far below 1e-14.
+                        expect(Math.abs(result.value.resultRounded - result.value.result)).toBeLessThanOrEqual(
+                            0.005 + 1e-14 * Math.abs(result.value.result),
+                        );
+                        expect(Number(result.value.resultRounded.toFixed(2))).toBe(result.value.resultRounded);
+                    }
                 },
             ),
         );

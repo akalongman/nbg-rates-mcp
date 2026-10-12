@@ -54,6 +54,8 @@ export interface Conversion {
     readonly from: CurrencyCode;
     readonly to: CurrencyCode;
     readonly result: number;
+    /** result rounded half up to two decimals from the exact value; the amount to show. */
+    readonly resultRounded: number;
     readonly rate: number;
     readonly via: 'direct' | 'GEL';
     readonly requestedDate: CalendarDate;

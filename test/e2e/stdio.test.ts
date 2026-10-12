@@ -126,6 +126,9 @@ describe('nbg-rates-mcp over stdio', () => {
         const output = convertOutput.parse(result.structuredContent);
         expect(output.via).toBe('GEL');
         expect(output.result).toBeCloseTo(100 * output.rate, 9);
+        // 100 USD in EUR is not a tie at the third decimal on 2026-10-07, so toFixed and half up agree here.
+        expect(output.resultRounded).toBe(Number(output.result.toFixed(2)));
+        expect(String(output.resultRounded)).toMatch(/^-?\d+(\.\d{1,2})?$/);
     });
 
     it('lists currencies', async () => {
