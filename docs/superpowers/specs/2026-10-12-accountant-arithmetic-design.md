@@ -203,7 +203,9 @@ Worked example, 2026-10-10 (USD 2.6005 per 1, JPY 1.6452 per 100):
 
 ## Change 3: history summary
 
-`HistorySeries` is unchanged. `historyOutput` adds:
+`HistoryPoint` gains `nbgQuantity: number`, the units NBG quotes the raw
+rate for on that day (`assembleHistory` has it from the CSV row); the wire
+form of a day is unchanged. `historyOutput` adds:
 
 ```json
 "summary": {
@@ -227,8 +229,12 @@ up to four decimals 3.0086.)
   carried-over days included (the basis of NBG's own period averages and
   of a period-end revaluation), exact, rounded half up to the series'
   decimals.
-- The series' decimals: the largest `formatDecimals(rate)` over the days,
-  so USD stays at 4 and AMD at 7, matching how NBG prints averages.
+- The series' decimals: `4 + log10(nbgQuantity)`, the largest over the
+  days, so USD is 4 and AMD is 7, matching how NBG prints averages. Every
+  NBG rate has four decimals, so the per-unit precision is a property of
+  the quantity; it is not read off the rate value, which drops trailing
+  zeros (2.7000 is 2.7) and would under-round a short range whose rates all
+  end in zero (ruling of 2026-10-12 during implementation).
 
 Computed in a new pure function `summarizeHistory(days)` in
 `src/core/history-summary.ts`, using `decimal.ts`. `rateHistoryOutput`
