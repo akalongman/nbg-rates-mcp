@@ -1,3 +1,4 @@
+import { summarizeHistory, type HistorySummary } from '../core/history-summary.js';
 import type { CalendarDate, CurrencyCode, HistoryPoint, HistorySeries } from '../core/types.js';
 
 /** A day whose own publication is in force carries date and rate; a carried-over day adds where its rate came from. */
@@ -16,6 +17,7 @@ export type HistoryOutput = {
     readonly from: CalendarDate;
     readonly to: CalendarDate;
     readonly days: ReadonlyArray<HistoryDayOutput>;
+    readonly summary: HistorySummary;
 };
 
 export function historyDayOutput(point: HistoryPoint): HistoryDayOutput {
@@ -26,5 +28,11 @@ export function historyDayOutput(point: HistoryPoint): HistoryDayOutput {
 
 /** The wire form of nbg_rate_history: about 40% smaller than full points, so a year stays near 6,000 tokens. */
 export function historyOutput(series: HistorySeries): HistoryOutput {
-    return { currency: series.currency, from: series.from, to: series.to, days: series.days.map(historyDayOutput) };
+    return {
+        currency: series.currency,
+        from: series.from,
+        to: series.to,
+        days: series.days.map(historyDayOutput),
+        summary: summarizeHistory(series.days),
+    };
 }

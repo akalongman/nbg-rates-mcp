@@ -147,6 +147,9 @@ describe('nbg-rates-mcp over stdio', () => {
         expect(JSON.stringify(result.structuredContent)).not.toContain('diff');
         const output = rateHistoryOutput.parse(result.structuredContent);
         expect(output.days).toHaveLength(7);
+        expect(output.summary).toMatchObject({ first: output.days[0]?.rate, last: output.days[6]?.rate });
+        expect(output.summary.min).toBeLessThanOrEqual(output.summary.average);
+        expect(output.summary.average).toBeLessThanOrEqual(output.summary.max);
         // Exactly one text block, holding the same JSON key for key; a second copy would double the context cost.
         expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.structuredContent) }]);
         // Keys as they came over the wire: the parse above rewrites them into schema order.

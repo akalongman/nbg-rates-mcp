@@ -270,7 +270,10 @@ export function createServer(deps: ServerDeps): McpServer {
                 'Mondays and days after a public holiday; before September 2021 NBG set a rate for every calendar day) ' +
                 'carry the earlier rate. Days whose own rate is in force contain only date and rate; a carried-over day ' +
                 'adds effectiveDate and carriedOver: true. Quote effectiveDate when carriedOver is true. A range reaching ' +
-                'a date NBG has not published yet returns an error. One NBG request per call.',
+                'a date NBG has not published yet returns an error. ' +
+                'summary holds the first, last, change, lowest and highest rate with their dates, and the average ' +
+                'over the calendar days, computed by the server: report those rather than deriving them. ' +
+                'One NBG request per call.',
             inputSchema: rateHistoryInput,
             outputSchema: rateHistoryOutput,
             annotations: READ_ONLY,

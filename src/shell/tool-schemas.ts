@@ -119,4 +119,21 @@ export const rateHistoryOutput = z.object({
                 .optional(),
         }),
     ),
+    summary: z
+        .object({
+            first: z.number().describe('Rate on from'),
+            last: z.number().describe('Rate on to'),
+            change: z.number().describe('last minus first, exact, at the decimals of the rates'),
+            min: z.number(),
+            minDate: z.string().describe('First calendar day the minimum occurs on'),
+            max: z.number(),
+            maxDate: z.string().describe('First calendar day the maximum occurs on'),
+            average: z
+                .number()
+                .describe('Arithmetic mean over every calendar day of the range, carried-over days included'),
+        })
+        .describe(
+            'Computed by the server; report these instead of deriving them from days. change and average are exact, ' +
+                'rounded half up to the decimals of the most precise daily rate (4 for USD, 7 for AMD).',
+        ),
 });

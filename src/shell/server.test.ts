@@ -279,7 +279,9 @@ describe('createServer', () => {
             '{"date":"2026-10-03","rate":2.6039},' +
             '{"date":"2026-10-04","rate":2.6039,"effectiveDate":"2026-10-03","carriedOver":true},' +
             '{"date":"2026-10-05","rate":2.6039,"effectiveDate":"2026-10-03","carriedOver":true},' +
-            '{"date":"2026-10-06","rate":2.6032}]}';
+            '{"date":"2026-10-06","rate":2.6032}],' +
+            '"summary":{"first":2.6042,"last":2.6032,"change":-0.001,"min":2.6032,"minDate":"2026-10-06",' +
+            '"max":2.6042,"maxDate":"2026-10-02","average":2.6038}}';
         expect(result.isError).toBeFalsy();
         expect(result.content).toEqual([{ type: 'text', text }]);
         expect(result.structuredContent).toEqual(JSON.parse(text));
