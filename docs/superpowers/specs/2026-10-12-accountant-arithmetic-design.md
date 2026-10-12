@@ -164,8 +164,8 @@ New pure module `src/core/decimal.ts`:
   schemas already reject those.
 - `roundHalfUp(value: Rational, decimals: number): number`: exact round
   half up, away from zero for negatives, returned as a number. For
-  `decimals` 2 the result has at most two decimals and, up to 2^53 in the
-  scaled integer (about 9e13 in the target currency), is exactly the
+  `decimals` 2 the result has at most two decimals and, up to 2^46 units
+  (about 7e13 in the target currency), is exactly the
   rounded decimal, so it reaches the model as `26.01`, never
   `26.009999999999998`; above that bound it is the nearest double, and the
   JSDoc and the `resultRounded` description say so (qualified after the
@@ -191,7 +191,7 @@ The identity case in `server.ts` (GEL to GEL) sets
 `Conversion` and `convertOutput` gain `resultRounded: number`, described
 as "result rounded half up to 2 decimals from the exact value; the amount
 to show. JSON drops trailing zeros, so 3.90 arrives as 3.9. Exact up to
-about 9e13 in the target currency; above that the nearest double." The
+about 7e13 in the target currency; above that the nearest double." The
 prompts ask for two decimals in the answer. (Quote aligned to the shipped
 text after the final review of 2026-10-12.)
 
