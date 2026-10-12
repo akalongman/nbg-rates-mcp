@@ -172,7 +172,7 @@ export const rateHistoryOutput = z.object({
         .object({
             first: z.number().describe('Rate on from'),
             last: z.number().describe('Rate on to'),
-            change: z.number().describe('last minus first, exact, at the decimals of the rates'),
+            change: z.number().describe("last minus first, exact, at the decimals NBG's quantity gives the currency"),
             min: z.number(),
             minDate: z.string().describe('First calendar day the minimum occurs on'),
             max: z.number(),
@@ -183,6 +183,7 @@ export const rateHistoryOutput = z.object({
         })
         .describe(
             'Computed by the server; report these instead of deriving them from days. change and average are exact, ' +
-                'rounded half up to the decimals of the most precise daily rate (4 for USD, 7 for AMD).',
+                "rounded half up to the decimals NBG's quantity gives the currency, 4 + log10(nbgQuantity) " +
+                '(4 for USD, 7 for AMD).',
         ),
 });
