@@ -16,7 +16,8 @@ export const COPY_KA: PageCopy = {
         'ნებისმიერი თარიღისთვის და ზუსტი კონვერტაცია, უფასოდ და რეგისტრაციის გარეშე.',
     ogImageAlt:
         'NBG Rates-ის ხატულა (თეთრი ლარის ნიშანი მუქ ლურჯ ფონზე), მის გვერდით კი ინგლისურენოვანი სათაური ' +
-        `„Official NBG exchange rates, inside Claude and ChatGPT“ და მისამართი ${SITE_HOST}/mcp.`,
+        '„Official NBG exchange rates, inside Claude and ChatGPT“ (საქართველოს ეროვნული ბანკის ოფიციალური ' +
+        `გაცვლითი კურსები პირდაპირ Claude-სა და ChatGPT-ში) და მისამართი ${SITE_HOST}/mcp.`,
     otherLanguage: 'English',
     independence: 'დამოუკიდებელი პროექტი. საქართველოს ეროვნულ ბანკთან არ არის დაკავშირებული.',
     headline: 'ეროვნული ბანკის ოფიციალური გაცვლითი კურსები პირდაპირ Claude-სა და ChatGPT-ში',
