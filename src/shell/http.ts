@@ -181,6 +181,11 @@ export function createHttpHandler(
         } catch (error: unknown) {
             reportFailure(error);
         }
-        return new Response(body === '' ? null : body, { status: response.status, headers: response.headers });
+        const headers = new Headers(response.headers);
+        // The stateless SDK answers every method but POST with 405 and leaves out the Allow header a 405 must carry.
+        if (response.status === 405 && !headers.has('allow')) {
+            headers.set('allow', 'POST');
+        }
+        return new Response(body === '' ? null : body, { status: response.status, headers });
     };
 }

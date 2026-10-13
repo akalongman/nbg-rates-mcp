@@ -203,6 +203,15 @@ describe('createHttpHandler', () => {
         expect(lines[0]).toMatchObject({ method: 'initialize', status: 406, outcome: 'error' });
     });
 
+    it.each(['GET', 'DELETE'])('answers %s /mcp with 405 and Allow: POST', async (method) => {
+        const { handler, lines } = handlerWith();
+        const response = await handler(new Request('https://nbg-rates.env.ge/mcp', { method }));
+        expect(response.status).toBe(405);
+        expect(response.headers.get('allow')).toBe('POST');
+        expect(await firstMessage(response)).toMatchObject({ error: { message: 'Method not allowed.' } });
+        expect(lines[0]).toMatchObject({ status: 405, outcome: 'error' });
+    });
+
     it('logs null fields for a body that is not JSON', async () => {
         const { handler, lines } = handlerWith();
         const request = new Request('https://nbg-rates.env.ge/mcp', {
