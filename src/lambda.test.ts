@@ -51,4 +51,13 @@ describe('lambda handler', () => {
         const result = await handler(foreign);
         expect(result.statusCode).toBe(421);
     });
+
+    // API Gateway answers TRACE and CONNECT itself; TRACK reaches the function in any case.
+    it.each(['TRACK', 'track'])('answers 405 to %s, a method a web Request cannot carry', async (method) => {
+        const forbidden = { ...event('apigw-get-root'), requestContext: { http: { method } } };
+        const result = await handler(forbidden);
+        expect(result.statusCode).toBe(405);
+        expect(result.headers['allow']).toBe('GET, HEAD, POST');
+        expect(result.body).toBe('Method not allowed.');
+    });
 });

@@ -6,7 +6,8 @@ one, and this document wins for everything it names. The arithmetic spec of
 2026-10-12 and the onboarding spec of 2026-10-09 are unchanged.
 
 Amended 2026-10-13 to describe what 0.5.0 shipped, where implementation
-and review corrected this design.
+and review corrected this design, and again for 0.5.1, which answers a
+method a web `Request` cannot carry with 405.
 
 ## Purpose
 
@@ -213,7 +214,9 @@ the request body or a user's arguments.
 ### `src/shell/http-adapter.ts`
 
 Two pure functions that turn a transport's request shape into a web
-`Request` and a `Response` back, shared by the local server and Lambda:
+`Request` and a `Response` back, and `handleIncoming`, which runs one
+transport request through the handler with them. All three are shared by
+the local server and Lambda:
 
 ```ts
 export interface IncomingRequest {
@@ -231,6 +234,10 @@ export interface OutgoingResponse {
 
 export function toWebRequest(incoming: IncomingRequest): Request;
 export async function fromWebResponse(response: Response): Promise<OutgoingResponse>;
+export async function handleIncoming(
+    handler: (request: Request) => Promise<Response>,
+    incoming: IncomingRequest,
+): Promise<OutgoingResponse>;
 ```
 
 `fromWebResponse` reads the whole body: the stateless handler answers
@@ -238,6 +245,15 @@ with a single JSON body or a short SSE stream that ends with the result,
 so buffering is correct and is what API Gateway needs anyway. Repeated
 response headers (`set-cookie` is the only one the platform splits, and
 this server sets none) are joined with `, `.
+
+`handleIncoming` answers a method the Fetch standard forbids (`CONNECT`,
+`TRACE`, `TRACK`, in any case) itself, because the `Request` constructor
+throws on it: 405 `text/plain` `Method not allowed.` with
+`Allow: GET, HEAD, POST` (every method some path serves, since the answer
+comes before routing). The handler is never called, so no log line is
+written. In 0.5.0 the throw escaped the Lambda handler as a failed
+invocation, which API Gateway answered with 500, and reached the local
+server's 500 path.
 
 ### `src/shell/http-node.ts`
 
@@ -250,9 +266,9 @@ export interface ServeOptions {
 export function serveHttp(handler: (request: Request) => Promise<Response>, options: ServeOptions): Promise<{ port: number; close: () => Promise<void> }>;
 ```
 
-A `node:http` server that collects the request body, calls
-`toWebRequest`, awaits the handler, and writes `fromWebResponse`'s status,
-headers and body. It is the only file in `src/shell` that imports
+A `node:http` server that collects the request body, hands it with the
+handler to `handleIncoming`, and writes the result's status, headers and
+body. It is the only file in `src/shell` that imports
 `node:http`. A failure while serving (a URL that cannot be built, a
 stream error) answers 500 `Internal error` and writes the same reduced
 `console.error` line as the handler; a client that hung up before its
@@ -595,11 +611,17 @@ URL answers 503 from the placeholder.
   `console.error` in the same reduced form.
 - `src/shell/http-adapter.test.ts`: round trips of method, URL, headers
   and body, including a binary body and a response with a repeated
-  header.
+  header; `handleIncoming` answers `CONNECT`, `TRACE`, `TRACK` and
+  `track` with 405 without calling the handler.
+- `src/shell/http-node.test.ts`: a `TRACE` request is answered 405
+  without calling the handler or writing a failure line. Node's parser
+  refuses `TRACK` and hands `CONNECT` to the `connect` event, so `TRACE`
+  is the forbidden method that reaches the server.
 - `src/lambda.test.ts`: `handler` with a recorded API Gateway v2 event for
   `POST /mcp` (a plain body and the same body base64 encoded) returns the
   expected status and JSON; `GET /` returns the text; the result is never
-  base64 encoded. The recorded events are fixtures under `test/fixtures/`.
+  base64 encoded; a `TRACK` event, upper or lower case, returns 405. The
+  recorded events are fixtures under `test/fixtures/`.
 - `test/e2e/http.test.ts`: starts `dist/bin.js --http --port 0` against
   the fixture NBG server, reads the port from the stderr line, connects
   with `StreamableHTTPClientTransport`, and runs the same scenarios as

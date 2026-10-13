@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { buffer } from 'node:stream/consumers';
-import { fromWebResponse, toWebRequest } from './http-adapter.js';
+import { handleIncoming } from './http-adapter.js';
 import { reportFailure } from './http.js';
 
 export interface ServeOptions {
@@ -30,16 +30,12 @@ export async function serveHttp(
         }
         const body = await buffer(request);
         const host = headers['host'] ?? `${options.host}:${port}`;
-        const outgoing = await fromWebResponse(
-            await handler(
-                toWebRequest({
-                    method: request.method ?? 'GET',
-                    url: `http://${host}${request.url ?? '/'}`,
-                    headers,
-                    body: body.byteLength === 0 ? null : new Uint8Array(body),
-                }),
-            ),
-        );
+        const outgoing = await handleIncoming(handler, {
+            method: request.method ?? 'GET',
+            url: `http://${host}${request.url ?? '/'}`,
+            headers,
+            body: body.byteLength === 0 ? null : new Uint8Array(body),
+        });
         response.writeHead(outgoing.status, outgoing.headers);
         response.end(Buffer.from(outgoing.body));
     }

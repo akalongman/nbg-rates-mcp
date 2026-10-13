@@ -1,5 +1,5 @@
 import { createServiceFromEnvironment, readPackageVersion } from './shell/environment.js';
-import { fromWebResponse, toWebRequest } from './shell/http-adapter.js';
+import { handleIncoming } from './shell/http-adapter.js';
 import { createHttpHandler, parseAllowedHosts } from './shell/http.js';
 
 /**
@@ -50,16 +50,12 @@ export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Res
         event.body === undefined
             ? null
             : new Uint8Array(Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8'));
-    const response = await fromWebResponse(
-        await handle(
-            toWebRequest({
-                method: event.requestContext.http.method,
-                url: `https://${host}${event.rawPath}${query}`,
-                headers,
-                body,
-            }),
-        ),
-    );
+    const response = await handleIncoming(handle, {
+        method: event.requestContext.http.method,
+        url: `https://${host}${event.rawPath}${query}`,
+        headers,
+        body,
+    });
     return {
         statusCode: response.status,
         headers: response.headers,

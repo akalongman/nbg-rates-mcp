@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fromWebResponse, toWebRequest } from './http-adapter.js';
+import { fromWebResponse, handleIncoming, toWebRequest } from './http-adapter.js';
 
 const BYTES = new Uint8Array([0, 255, 10, 13, 128]);
 
@@ -26,6 +26,34 @@ describe('toWebRequest', () => {
         });
         expect(request.method).toBe('GET');
         expect(request.body).toBeNull();
+    });
+});
+
+describe('handleIncoming', () => {
+    it('runs the request through the handler and buffers its response', async () => {
+        const outgoing = await handleIncoming((request) => Promise.resolve(new Response(`saw ${request.method}`)), {
+            method: 'post',
+            url: 'https://nbg-rates.env.ge/mcp',
+            headers: {},
+            body: BYTES,
+        });
+        expect(outgoing.status).toBe(200);
+        expect(new TextDecoder().decode(outgoing.body)).toBe('saw POST');
+    });
+
+    it.each(['CONNECT', 'TRACE', 'TRACK', 'track'])('answers 405 to %s without calling the handler', async (method) => {
+        let called = false;
+        const outgoing = await handleIncoming(
+            () => {
+                called = true;
+                return Promise.resolve(new Response('unreachable'));
+            },
+            { method, url: 'https://nbg-rates.env.ge/mcp', headers: {}, body: null },
+        );
+        expect(outgoing.status).toBe(405);
+        expect(outgoing.headers).toEqual({ allow: 'GET, HEAD, POST', 'content-type': 'text/plain; charset=utf-8' });
+        expect(new TextDecoder().decode(outgoing.body)).toBe('Method not allowed.');
+        expect(called).toBe(false);
     });
 });
 

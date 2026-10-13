@@ -84,6 +84,45 @@ describe('serveHttp', () => {
         }
     });
 
+    // Node's parser refuses TRACK and hands CONNECT to the 'connect' event, so TRACE is the one that arrives here.
+    it('answers 405 to TRACE without calling the handler or printing a failure', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        try {
+            let called = false;
+            const server = await serveHttp(
+                () => {
+                    called = true;
+                    return Promise.resolve(new Response('unreachable'));
+                },
+                { port: 0, host: '127.0.0.1' },
+            );
+            close = () => server.close();
+            // fetch refuses TRACE itself, so the request goes out on a raw node:http request.
+            const answer = await new Promise<{ status: number | undefined; allow: string | undefined; body: string }>(
+                (resolve, reject) => {
+                    http.request(
+                        { host: '127.0.0.1', port: server.port, path: '/mcp', method: 'TRACE' },
+                        (response) => {
+                            let body = '';
+                            response.setEncoding('utf8');
+                            response.on('data', (chunk: string) => (body += chunk));
+                            response.on('end', () =>
+                                resolve({ status: response.statusCode, allow: response.headers.allow, body }),
+                            );
+                        },
+                    )
+                        .on('error', reject)
+                        .end();
+                },
+            );
+            expect(answer).toEqual({ status: 405, allow: 'GET, HEAD, POST', body: 'Method not allowed.' });
+            expect(called).toBe(false);
+            expect(consoleError).not.toHaveBeenCalled();
+        } finally {
+            consoleError.mockRestore();
+        }
+    });
+
     it('prints nothing for a client that hangs up mid-upload', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         try {
