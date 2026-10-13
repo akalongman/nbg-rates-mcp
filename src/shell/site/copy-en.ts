@@ -101,6 +101,8 @@ export const COPY_EN: PageCopy = {
         'It keeps two logs for 30 days: which tool was called from which client, and the gateway’s access log, ' +
             'with the time, path, status, and the caller’s IP address and user agent. For claude.ai and ChatGPT, ' +
             'the caller is Anthropic’s or OpenAI’s server.',
+        'The logs are used only to keep the service running, to see which clients use it and to investigate errors ' +
+            'or abuse; they are not sold, shared or used for advertising.',
         'This page sets no cookies and loads nothing from anyone else. Opening it is logged like any other request.',
         `The connector and this page are operated by ${OPERATOR}, on AWS. Questions go to the Support link below.`,
     ],
