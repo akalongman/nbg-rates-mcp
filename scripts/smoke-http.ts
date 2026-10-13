@@ -4,6 +4,10 @@
  * installed package: it speaks MCP's JSON-RPC over fetch and reads the answer as JSON or as an SSE stream, and it uses
  * only erasable TypeScript syntax, which Node runs as is. Usage: node scripts/smoke-http.ts <url> <version>. Exit 0 on
  * success, 1 with the first failing check on stderr, 2 on a usage error.
+ *
+ * The conversion is the one check that reaches NBG, whose edge fails now and then, so it is tried up to three times,
+ * five seconds apart, when its request fails, the endpoint answers 5xx or the tool answers an error; each retry prints
+ * one line naming the attempt and the reason. A wrong amount and every other check fail at once.
  */
 
 const TOOLS = ['nbg_convert', 'nbg_convert_many', 'nbg_get_rates', 'nbg_list_currencies', 'nbg_rate_history'];
@@ -12,6 +16,8 @@ const PROTOCOL_VERSION = '2025-11-25';
 // A two decimal amount times 100 lies within float error of an integer (20.01 * 100 is 2001.0000000000002); a third
 // decimal puts it at least 0.1 away.
 const CENTS_TOLERANCE = 1e-6;
+const CONVERT_ATTEMPTS = 3;
+const CONVERT_RETRY_SECONDS = 5;
 
 type JsonObject = Readonly<Record<string, unknown>>;
 
@@ -24,6 +30,13 @@ interface Answer {
     readonly result: JsonObject;
     readonly response: Response;
 }
+
+type TransientReason = 'request error' | 'tool error' | `HTTP ${number}`;
+
+/** One conversion attempt: its result, or a failure a retry may clear, with its reason and its line for the run. */
+type ConvertAttempt =
+    | { readonly kind: 'result'; readonly result: JsonObject }
+    | { readonly kind: 'transient'; readonly reason: TransientReason; readonly failure: string };
 
 function fail(message: string): never {
     console.error(`smoke test failed: ${message}`);
@@ -79,10 +92,8 @@ async function post(session: Session, message: JsonObject): Promise<Response> {
     });
 }
 
-/** Sends a request and returns the result of the answer carrying its id; any other outcome fails the run. */
-async function call(session: Session, id: number, method: string, params: JsonObject): Promise<Answer> {
-    const response = await post(session, { jsonrpc: '2.0', id, method, params });
-    const body = await response.text();
+/** Returns the result of the answer carrying the id; a status other than 200 or no such result fails the run. */
+function answerOf(method: string, id: number, response: Response, body: string): Answer {
     if (response.status !== 200) {
         fail(`${method} answered ${response.status}: ${body.slice(0, 200)}`);
     }
@@ -94,6 +105,68 @@ async function call(session: Session, id: number, method: string, params: JsonOb
         fail(`${method} answered ${body.slice(0, 300)}`);
     }
     return { result, response };
+}
+
+/** Sends a request and returns the result of the answer carrying its id; any other outcome fails the run. */
+async function call(session: Session, id: number, method: string, params: JsonObject): Promise<Answer> {
+    const response = await post(session, { jsonrpc: '2.0', id, method, params });
+    return answerOf(method, id, response, await response.text());
+}
+
+/** Converts 10 USD to GEL once. A request that throws, a 5xx status and a tool error come back as transient. */
+async function convert(session: Session, id: number): Promise<ConvertAttempt> {
+    const method = 'tools/call';
+    let response: Response;
+    let body: string;
+    try {
+        response = await post(session, {
+            jsonrpc: '2.0',
+            id,
+            method,
+            params: { name: 'nbg_convert', arguments: { amount: 10, from: 'USD', to: 'GEL' } },
+        });
+        body = await response.text();
+    } catch (error: unknown) {
+        return { kind: 'transient', reason: 'request error', failure: `${method} request failed: ${String(error)}` };
+    }
+    if (response.status >= 500) {
+        return {
+            kind: 'transient',
+            reason: `HTTP ${response.status}`,
+            failure: `${method} answered ${response.status}: ${body.slice(0, 200)}`,
+        };
+    }
+    const { result } = answerOf(method, id, response, body);
+    // An NBG upstream failure reaches the client as a tool error.
+    if (result['isError'] === true) {
+        return {
+            kind: 'transient',
+            reason: 'tool error',
+            failure: `nbg_convert answered ${JSON.stringify(result).slice(0, 300)}`,
+        };
+    }
+    return { kind: 'result', result };
+}
+
+/** Converts with up to CONVERT_ATTEMPTS attempts; the last transient failure fails the run. */
+async function convertWithRetries(session: Session, firstId: number): Promise<JsonObject> {
+    let attempt = 1;
+    let outcome = await convert(session, firstId);
+    while (outcome.kind === 'transient' && attempt < CONVERT_ATTEMPTS) {
+        // The reason class only, never a response body; the failure line after the last attempt quotes the answer.
+        console.error(
+            `smoke test: nbg_convert attempt ${attempt} of ${CONVERT_ATTEMPTS} failed (${outcome.reason}), ` +
+                `retrying in ${CONVERT_RETRY_SECONDS} s`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, CONVERT_RETRY_SECONDS * 1000));
+        // A fresh JSON-RPC id per attempt: an id is never reused within a session.
+        outcome = await convert(session, firstId + attempt);
+        attempt += 1;
+    }
+    if (outcome.kind === 'transient') {
+        fail(outcome.failure);
+    }
+    return outcome.result;
 }
 
 const { endpoint, version } = parseArguments();
@@ -142,14 +215,11 @@ if (JSON.stringify(names) !== JSON.stringify(TOOLS)) {
     fail(`tools/list returned ${names.join(', ')}`);
 }
 
-const converted = await call(session, 3, 'tools/call', {
-    name: 'nbg_convert',
-    arguments: { amount: 10, from: 'USD', to: 'GEL' },
-});
-const structured = converted.result['structuredContent'];
+const converted = await convertWithRetries(session, 3);
+const structured = converted['structuredContent'];
 const resultRounded = isObject(structured) ? structured['resultRounded'] : undefined;
-if (converted.result['isError'] === true || typeof resultRounded !== 'number') {
-    fail(`nbg_convert answered ${JSON.stringify(converted.result).slice(0, 300)}`);
+if (typeof resultRounded !== 'number') {
+    fail(`nbg_convert answered ${JSON.stringify(converted).slice(0, 300)}`);
 }
 const cents = resultRounded * 100;
 if (!Number.isFinite(resultRounded) || Math.abs(cents - Math.round(cents)) > CENTS_TOLERANCE) {
