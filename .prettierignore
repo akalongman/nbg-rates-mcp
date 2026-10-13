@@ -4,3 +4,4 @@ test/fixtures/
 dist/
 bundle/
 .superpowers/
+src/shell/site/assets.generated.ts

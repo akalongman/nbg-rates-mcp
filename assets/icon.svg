@@ -1,5 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+    <!--
+        The lari sign (U+20BE) of NotoSans-Bold.ttf at size 340, centred on x 256 with its baseline at
+        y 378, drawn as a path by scripts/glyph-paths.py, so the icon renders without the font.
+    -->
     <rect width="512" height="512" rx="96" fill="#1F3A5F"/>
-    <text x="256" y="378" fill="#FFFFFF" font-family="Noto Sans" font-weight="700" font-size="340"
-        text-anchor="middle">₾</text>
+    <path fill="#FFFFFF" d="M167.77 335.16H222.17Q199.73 321.9 184.26 298.27Q168.79 274.64 168.79 238.94Q168.79 199.84 188.85 173.49Q208.91 147.14 245.29 138.64V100.9H268.07V135.58Q272.83 135.24 277.93 135.24Q286.43 135.24 293.91 135.92V100.9H316.69V138.98Q330.29 142.04 344.57 147.82V191Q330.97 185.56 316.69 182.16V237.58H293.91V178.76Q287.11 178.08 280.65 178.08Q274.19 178.08 268.07 179.1V237.58H245.29V187.6Q219.79 204.6 219.79 243.7Q219.79 269.2 230.5 289.94Q241.21 310.68 262.63 322.92Q284.05 335.16 315.67 335.16H347.63V378H167.77Z"/>
 </svg>
