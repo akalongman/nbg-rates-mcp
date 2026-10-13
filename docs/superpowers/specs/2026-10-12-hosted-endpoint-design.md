@@ -5,6 +5,9 @@ spec), which declared "There is no hosted component"; from 0.5.0 there is
 one, and this document wins for everything it names. The arithmetic spec of
 2026-10-12 and the onboarding spec of 2026-10-09 are unchanged.
 
+Amended 2026-10-13 to describe what 0.5.0 shipped, where implementation
+and review corrected this design.
+
 ## Purpose
 
 An accountant on claude.ai in a browser, on the Claude mobile app or on
@@ -52,7 +55,8 @@ environment variable; no tool, prompt, resource or output field changes.
   Lambda path needs an adapter of its own anyway, so this design writes
   one small adapter and adds no dependency.
 - The client package exports `StreamableHTTPClientTransport`, which the
-  end-to-end test and the smoke test use.
+  end-to-end test uses. The smoke test loads no package at all
+  (Change 3).
 - CloudFront's origin access control for Lambda function URLs requires
   every `POST` to carry a SHA-256 of its body in the `x-amz-content-sha256`
   header, which MCP clients never send; CloudFront in front of a function
@@ -249,7 +253,10 @@ export function serveHttp(handler: (request: Request) => Promise<Response>, opti
 A `node:http` server that collects the request body, calls
 `toWebRequest`, awaits the handler, and writes `fromWebResponse`'s status,
 headers and body. It is the only file in `src/shell` that imports
-`node:http`.
+`node:http`. A failure while serving (a URL that cannot be built, a
+stream error) answers 500 `Internal error` and writes the same reduced
+`console.error` line as the handler; a client that hung up before its
+body arrived whole gets no answer and no line.
 
 ### `src/bin.ts`
 
@@ -297,6 +304,10 @@ response with `isBase64Encoded: false` and the body as UTF-8 text (every
 response this server produces is text). The interfaces are local so the
 package gains no `@types/aws-lambda` dependency; they name only the
 fields read.
+
+`src/bin.ts` and `src/lambda.ts` build the rates service and read the
+package version through one module, `src/shell/environment.ts`, so the
+two entries cannot drift apart.
 
 ### Environment variables
 
@@ -351,19 +362,26 @@ are `nbg-rates-mcp` unless AWS forces otherwise.
   and the handler alone decides between `/`, `/mcp` and a 404 with a
   hint; the `$default` stage with
   `auto_deploy`, `default_route_settings { throttling_burst_limit = 10,
-  throttling_rate_limit = 10 }` (requests per second across all callers,
-  matched to the function's reserved concurrency so a flood is refused
-  with 429 at the gateway and never reaches the function's own throttle,
-  which the gateway would report as a 500), and access logging to the
+  throttling_rate_limit = 10 }` (requests per second across all callers:
+  a flood of fast requests is refused with 429 at the gateway and stays
+  off the function's reserved concurrency of 10, but requests slower
+  than a second, such as tool calls during an NBG outage at about 21
+  seconds each, can still occupy all 10 instances, and the function's
+  own throttle then reaches callers as a 500), and access logging to the
   30 day log group `/aws/apigateway/nbg-rates-mcp` with the fields `requestId`, `ip`,
   `requestTime`, `httpMethod`, `path`, `status`, `integrationLatency`
   and `userAgent`. `aws_lambda_permission` lets the API invoke the alias
-  (qualifier `live`, `source_arn` of the API's execute ARN).
+  (qualifier `live`, `source_arn` of the API's execute ARN). The API's
+  own `execute-api` hostname is disabled
+  (`disable_execute_api_endpoint = true`), so the custom domain is the
+  only way in and the Host check is a second guard.
 - **Domain**: `aws_acm_certificate` for `nbg-rates.env.ge`, DNS validated
   with the record in `aws_route53_zone.env_ge` and an
   `aws_acm_certificate_validation` waiter, in the same shape as the
-  website's; `aws_apigatewayv2_domain_name` with `TLS_1_2` and the
-  regional endpoint; `aws_apigatewayv2_api_mapping` of the API's
+  website's; `aws_apigatewayv2_domain_name` with `TLS_1_2`, the
+  regional endpoint and `ip_address_type = "dualstack"` (an IPv4-only
+  domain name gives the `AAAA` alias no address to return);
+  `aws_apigatewayv2_api_mapping` of the API's
   `$default` stage with no path key; Route 53 `A` and `AAAA` alias
   records for `nbg-rates.env.ge` to the domain name's target.
 - **Deploy role** `nbg-rates-mcp-deploy` in `nbg-rates-mcp.tf` (the
@@ -376,8 +394,11 @@ are `nbg-rates-mcp` unless AWS forces otherwise.
   `lambda:GetFunction`, `lambda:GetFunctionConfiguration`,
   `lambda:UpdateFunctionCode`, `lambda:PublishVersion` on the function
   ARN and `<function ARN>:*`; `lambda:GetAlias`, `lambda:UpdateAlias` on
-  `<function ARN>:live`. Nothing on configuration, DNS, the API or any
-  other function.
+  the function ARN and `<function ARN>:live`. Lambda authorizes those two
+  actions against the unqualified function ARN, so the alias ARN alone
+  would deny them; the role can therefore move any alias of this one
+  function, and `live` is its only alias. Nothing on configuration, DNS,
+  the API or any other function.
 - **Budget** `nbg-rates.env.ge` of 5 USD a month, filtered to the
   services AWS Lambda, Amazon API Gateway and AmazonCloudWatch, alerting
   on actual and forecast spend to the owner's address, in the shape of the
@@ -406,7 +427,13 @@ logs.
 - A third job `deploy`, `needs: publish`, with `permissions: { contents: read, id-token: write }`,
   that runs only when the repository variable `AWS_ROLE_ARN` is set
   (`if: vars.AWS_ROLE_ARN != ''`), so a fork or a repository without the
-  infrastructure releases to npm and GitHub as today. Steps:
+  infrastructure releases to npm and GitHub as today. Its own
+  `concurrency: { group: lambda-deploy, cancel-in-progress: false }`
+  queues deploys of different tags instead of letting them race over
+  the one alias. Because the job can mint AWS credentials, it runs no
+  installed package: `build-lambda.sh` installs the production
+  dependencies with `--ignore-scripts` and only zips them, and the smoke
+  test needs `node` alone. Steps:
   1. Checkout with `persist-credentials: false`; `actions/setup-node`
      with Node 24, no cache.
   2. Download the `release` artifact and build the Lambda zip with
@@ -447,12 +474,25 @@ The commands, with `$version` the argument, each reading one value with
    1: a rollback target must be immutable. Then
    `current=$(aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --qualifier "$previous" --query Description --output text)`;
    if `current` equals `v$version`, print
-   `$FUNCTION_NAME $FUNCTION_ALIAS is already v$version` and return.
+   `$FUNCTION_NAME $FUNCTION_ALIAS is already v$version; smoke testing it`
+   and run the smoke test of step 5, because a run stopped after the
+   alias moved left it unverified. On failure there is no automatic
+   rollback (the version it replaced is unknown here): the step prints
+   the `list-versions-by-function` and `update-alias` commands for a
+   person and exits 1.
+   If `current` is a plain release `vX.Y.Z` newer than `v$version`,
+   print `$FUNCTION_NAME $FUNCTION_ALIAS serves <current>, newer than v$version; not deploying an older release`
+   and return before any upload, so a re-run of an older release's job
+   never downgrades production. Versions compare by their `X.Y.Z` core
+   with `sort -V`, and a pre-release of the live release is older than
+   it; a description that is not a plain release (the placeholder's, a
+   pre-release) never blocks a deploy. Then refuse a missing
+   `nbg-rates-mcp-$version-lambda.zip` before touching the function.
 2. `aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file "fileb://nbg-rates-mcp-$version-lambda.zip" --query FunctionArn --output text`,
    then `aws lambda wait function-updated-v2 --function-name "$FUNCTION_NAME"`.
 3. `new=$(aws lambda publish-version --function-name "$FUNCTION_NAME" --description "v$version" --query Version --output text)`.
 4. `aws lambda update-alias --function-name "$FUNCTION_NAME" --name "$FUNCTION_ALIAS" --function-version "$new" --query FunctionVersion --output text`.
-5. Smoke test: `npx tsx scripts/smoke-http.ts "$MCP_URL" "$version"`.
+5. Smoke test: `node scripts/smoke-http.ts "$MCP_URL" "$version"`.
    On failure,
    `aws lambda update-alias --function-name "$FUNCTION_NAME" --name "$FUNCTION_ALIAS" --function-version "$previous"`,
    print `rolled back $FUNCTION_ALIAS to version $previous`, and exit 1,
@@ -464,15 +504,28 @@ Rollback by hand is the same `update-alias` with any earlier version;
 
 ### `scripts/smoke-http.ts <url> <version>`
 
-First fetches `GET /` on the URL's origin and checks status 200 and that
-the text names `<version>`; then connects with the real client over
-`StreamableHTTPClientTransport`, checks that `initialize` reports
-`serverInfo.version` equal to
-`<version>`, that `tools/list` returns the five tool names, and that
-`nbg_convert` of 10 USD to GEL with no date returns a `resultRounded`
-that is a finite number with at most two decimals. Exit 0 on success, 1
-with the first failing check on stderr otherwise. It is also the manual
-check after an infrastructure change.
+Imports nothing from `node_modules`, because the deploy step that runs
+it holds the AWS session, and uses only erasable TypeScript syntax, so
+Node 24 runs it as is (`node scripts/smoke-http.ts <url> <version>`);
+typecheck and lint still cover it. It speaks MCP's JSON-RPC over
+`fetch`, with `Accept: application/json, text/event-stream`, and reads
+each answer as JSON or as an SSE stream. First `GET /` on the URL's
+origin must answer 200 with text that names `<version>`; then
+`initialize` must report `serverInfo.version` equal to `<version>`,
+`notifications/initialized` must answer 202, `tools/list` must return
+exactly the five tool names, and `nbg_convert` of 10 USD to GEL with no
+date must return a `resultRounded` that is a finite number with at most
+two decimals, checked with a tolerance (the amount times 100 within
+1e-6 of an integer), never exact float equality, which rejects valid
+amounts such as 20.01. The conversion is the one check that reaches
+NBG, so it is tried up to three times, five seconds apart, when its
+request fails, the endpoint answers 5xx or the tool answers an error,
+each retry printing one line with the attempt and the reason; a wrong
+amount and every other check fail at once. The protocol version it
+sends is the latest one of the SDK in `package-lock.json`, so an SDK
+update that changes it updates the script. Exit 0 on success, 1 with
+the first failing check on stderr, 2 on a usage error. It is also the
+manual check after an infrastructure change.
 
 ### One-time order
 
@@ -483,21 +536,36 @@ URL answers 503 from the placeholder.
 
 ## Change 4: documents
 
-- **README**, under "Install", a new first subsection "claude.ai, Claude
-  mobile and ChatGPT (nothing to install)": paste
-  `https://nbg-rates.env.ge/mcp` into Settings, Connectors, Add custom
-  connector (claude.ai; the connector then appears in the mobile apps
-  too); ChatGPT needs developer mode and may require a paid plan. It
-  states what the hosted copy is: the latest release, run by the
-  maintainer on AWS, no account, no data stored beyond a 30 day log of
-  which tool was called from which client and never the amounts, dates
-  or currencies asked. Under "Node.js", a paragraph "Self-hosting":
-  `nbg-rates-mcp --http --port 3000` and the Lambda handler
-  `dist/lambda.handler` behind API Gateway, with `NBG_RATES_HTTP_HOSTS`.
-  The environment variable table gains `NBG_RATES_HTTP_HOSTS`.
+- **README**: the opening sentence says the server runs on your machine
+  or as a hosted connector you paste into claude.ai or ChatGPT. Under
+  "Install", a new first subsection "claude.ai, Claude mobile and
+  ChatGPT (nothing to install)": paste `https://nbg-rates.env.ge/mcp`
+  as a custom connector. On claude.ai that is Customize, then
+  Connectors, then "+ Add" and "Add custom connector" (on a Team or
+  Enterprise plan an owner adds it under Organization settings, then
+  Connectors), and the connector then appears in the mobile apps and
+  in Claude Desktop too; ChatGPT needs developer mode and may require a
+  paid plan. It states what the hosted copy is: the latest release, run
+  by the maintainer on AWS, no account, never the amounts, dates or
+  currencies asked, and two logs kept for 30 days: which tool was
+  called from which client, and the gateway's access log (time, path,
+  status, and the caller's IP address and user agent; for claude.ai and
+  ChatGPT the caller is Anthropic's or OpenAI's server). Under
+  "Node.js", a paragraph "Self-hosting": `nbg-rates-mcp --http --port
+  3000` and the Lambda handler `dist/lambda.handler` behind an API
+  Gateway HTTP API with payload format 2.0 and the `$default` stage,
+  with `NBG_RATES_HTTP_HOSTS`. The environment variable table gains
+  `NBG_RATES_HTTP_HOSTS` (unset or empty: any host).
 - **manifest.json**: unchanged (the bundle is the stdio server).
+- **server.json** lists the hosted endpoint as a remote,
+  `{ "type": "streamable-http", "url": "https://nbg-rates.env.ge/mcp" }`,
+  so MCP Registry clients can find it. The registry (checked at its
+  release v1.8.1) requires a remote to be https, not localhost, and not
+  listed by another server name; it does not tie a remote's host to the
+  `io.github` namespace.
 - **CHANGELOG** `## 0.5.0 - <release date>` with the hosted endpoint, the
-  `--http` flag, the Lambda entry and the environment variable.
+  `--http` flag, the Lambda entry, the environment variable and the
+  registry remote.
 - **Versions** 0.5.0 in `package.json`, `package-lock.json`,
   `manifest.json` and `server.json`; `scripts/check-release.ts` is the
   check.
@@ -538,6 +606,18 @@ URL answers 503 from the placeholder.
   `stdio.test.ts` (today's rates, a conversion, a batch with a bad date, a
   history with its summary, the three error texts) plus one that a
   second client sees the cache warm (the fixture server counts requests).
+- `test/e2e/build-lambda.test.ts` packs the package, runs
+  `build-lambda.sh` the way the deploy job does (without the
+  `npm_*` variables `npm run` sets, which npm 11 would refuse in the
+  script's `npm ci` when a user `.npmrc` sets `allow-scripts`), and
+  checks the zip's listing.
+- `test/scripts/publish-release.test.ts` drives the `lambda` step
+  against stub `aws` and `node` commands: a deploy, a rollback, an
+  alias already on the version (smoke tested again, and the manual
+  commands when that fails), a newer release left alone, and an alias
+  on `$LATEST` refused. Every local run sets `AWS_PROFILE` to a
+  profile that does not exist, so a stub that fails to shadow the real
+  CLI cannot reach AWS.
 - `scripts/smoke-http.ts` runs in the deploy job and by hand; it is not
   part of `npm test`.
 - Contract tests are unchanged.
@@ -556,24 +636,38 @@ URL answers 503 from the placeholder.
   not in this repository.
 - **A broken release**: the deploy job rolls the alias back by itself when
   the smoke test fails; a release that passed the smoke test and is found
-  broken later is rolled back by hand with `update-alias`.
+  broken later is rolled back by hand with `update-alias`. A re-run of
+  the live release's job smoke tests it again and, on failure, prints
+  the manual commands; a re-run of an older release's job while a newer
+  one is live changes nothing.
 - **A configuration change in Terraform** (memory, timeout, an
   environment variable) is published as a new version of the current
   `$LATEST` code, and the alias stays where it is, so the change is not
   live until the alias moves: either the next release, or by hand with
-  `update-alias` to the version Terraform reports. `docs/aws.md` says so
-  beside the rollback command.
+  `update-alias` to that version, the highest number in
+  `list-versions-by-function`, once its `CodeSha256` equals the live
+  version's. After a release whose smoke test failed, `$LATEST` still
+  holds the rejected build, so the hashes differ and the change waits
+  for the next release. `docs/aws.md` says so beside the rollback
+  command.
 - **A NBG outage**: tool calls answer `upstream_unavailable` within about
-  21 seconds, inside the function's timeout; API Gateway returns 200 with
-  the JSON-RPC error, as the stdio server would.
+  21 seconds, inside the function's timeout; the endpoint answers 200
+  with a tool result that carries `isError` and the error text, as the
+  stdio server would. Each such call holds an instance for those 21
+  seconds, so more than about one call every two seconds fills the
+  reserved concurrency and the rest are answered 500 (see "A flood").
 - **A flood**: throttling answers 429 at the gateway above 10 requests a
   second; reserved concurrency caps the function at 10 parallel
-  instances; the budget mails at 5 USD. The URL may be slow or refuse
-  during a flood, and nothing else in the account is affected.
+  instances, and requests beyond those while all 10 are busy are
+  answered 500 by the gateway (the function's own throttle); the budget
+  mails at 5 USD. The URL may be slow or refuse during a flood, and
+  nothing else in the account is affected.
 - **A batch of many uncached dates**: `nbg_convert_many` fetches dates one
   after another; a hundred dates never seen by a cold instance can
-  exceed the 29 second timeout, in which case the gateway answers 503 and
-  the model is expected to retry with a smaller batch. Accepted; a shared
+  exceed the 29 second timeout. The function times out before the
+  gateway's 30 second integration timeout, and the gateway reports the
+  failed invocation as 500; the model is expected to retry with a
+  smaller batch. Accepted; a shared
   cache is out of scope.
 
 ## Out of scope
