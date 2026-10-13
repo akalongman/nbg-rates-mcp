@@ -21,7 +21,7 @@ Usage: nbg-rates-mcp [--http [--port <n>] [--host <address>]] [--version] [--hel
 Environment:
   NBG_RATES_BASE_URL    Override the NBG host (default https://nbg.gov.ge)
   NBG_RATES_DEBUG=1     Log every upstream request to stderr
-  NBG_RATES_HTTP_HOSTS  Host names the HTTP endpoint answers for, comma separated (unset: any)
+  NBG_RATES_HTTP_HOSTS  Host names the HTTP endpoint answers for, comma separated (unset or empty: any)
 `;
 
 interface Options {
