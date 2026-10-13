@@ -22,10 +22,15 @@ describe('build-lambda.sh', () => {
         workDir = mkdtempSync(join(tmpdir(), 'build-lambda-'));
         // The tarball the build job packs; npm pack writes it into the working directory.
         execFileSync('npm', ['pack', '--pack-destination', workDir], { cwd: ROOT, stdio: 'ignore' });
+        // The deploy job runs the script directly. Under `npm run test:e2e` the script's own npm ci would inherit
+        // npm_config_* variables, and npm 11 refuses an allow-scripts setting from a user .npmrc that arrives that way.
+        const environment = Object.fromEntries(
+            Object.entries(process.env).filter(([name]) => !name.startsWith('npm_')),
+        );
         const result = spawnSync('bash', [SCRIPT, version], {
             cwd: workDir,
             encoding: 'utf8',
-            env: { ...process.env, PACKAGE_LOCK: join(ROOT, 'package-lock.json') },
+            env: { ...environment, PACKAGE_LOCK: join(ROOT, 'package-lock.json') },
         });
         expect(result.stderr).toBe('');
         expect(result.status).toBe(0);
