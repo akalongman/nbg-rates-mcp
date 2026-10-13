@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { ApiGatewayV2Event } from './lambda.js';
+import { FAVICON_ICO_BASE64 } from './shell/site/assets.generated.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', 'test', 'fixtures');
 
@@ -44,6 +45,28 @@ describe('lambda handler', () => {
         expect(result.statusCode).toBe(200);
         expect(result.headers['content-type']).toBe('text/html; charset=utf-8');
         expect(result.body).toContain('<html lang="en">');
+    });
+
+    it('returns the favicon base64 encoded', async () => {
+        const result = await handler({ ...event('apigw-get-root'), rawPath: '/favicon.ico' });
+        expect(result.statusCode).toBe(200);
+        expect(result.headers['content-type']).toBe('image/x-icon');
+        expect(result.isBase64Encoded).toBe(true);
+        expect(result.body).toBe(FAVICON_ICO_BASE64);
+    });
+
+    it('answers HEAD on a binary asset with its headers and an empty body', async () => {
+        const head = { ...event('apigw-get-root'), rawPath: '/og.png', requestContext: { http: { method: 'HEAD' } } };
+        const result = await handler(head);
+        expect(result.statusCode).toBe(200);
+        expect(result.headers['content-type']).toBe('image/png');
+        expect(result.body).toBe('');
+    });
+
+    it('keeps text bodies as text', async () => {
+        const robots = await handler({ ...event('apigw-get-root'), rawPath: '/robots.txt' });
+        expect(robots.isBase64Encoded).toBe(false);
+        expect(robots.body).toBe('User-agent: *\nDisallow: /mcp\n');
     });
 
     it('refuses a foreign host', async () => {

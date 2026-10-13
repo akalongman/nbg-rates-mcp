@@ -1,7 +1,7 @@
 /**
  * Turns a transport's request shape into a web standard Request and a Response back. Shared by the node:http server
  * (http-node.ts) and the Lambda entry (lambda.ts), so the HTTP shell only ever sees web Requests. Bodies are buffered:
- * every response this server produces is a single JSON body or a short SSE stream that ends with the result.
+ * every response this server produces is a single JSON body, a short SSE stream, a page or a small image.
  */
 
 export interface IncomingRequest {

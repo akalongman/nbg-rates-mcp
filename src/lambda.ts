@@ -38,6 +38,16 @@ const handle = createHttpHandler({
     log: (line) => console.log(JSON.stringify(line)),
 });
 
+const TEXT_TYPE_PREFIXES: readonly string[] = ['text/', 'application/json', 'application/javascript'];
+
+function isTextContentType(contentType: string | undefined): boolean {
+    if (contentType === undefined) {
+        return false;
+    }
+    const type = contentType.toLowerCase();
+    return TEXT_TYPE_PREFIXES.some((prefix) => type.startsWith(prefix)) || type.includes('charset=');
+}
+
 export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Result> {
     const headers: Record<string, string> = {};
     for (const [name, value] of Object.entries(event.headers)) {
@@ -57,11 +67,13 @@ export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Res
         headers,
         body,
     });
+    const text = isTextContentType(response.headers['content-type']);
     return {
         statusCode: response.status,
         headers: response.headers,
-        // Every response this server produces is text.
-        body: new TextDecoder().decode(response.body),
-        isBase64Encoded: false,
+        // Text when the content type starts with text/, application/json or application/javascript or names a charset,
+        // case-insensitive; any other body, one without a content type included, goes base64 encoded.
+        body: text ? new TextDecoder().decode(response.body) : Buffer.from(response.body).toString('base64'),
+        isBase64Encoded: !text,
     };
 }
