@@ -19,7 +19,7 @@
         "type": "git",
         "url": "git+https://github.com/akalongman/nbg-rates-mcp.git"
     },
-    "homepage": "https://github.com/akalongman/nbg-rates-mcp#readme",
+    "homepage": "https://nbg-rates.env.ge",
     "bugs": "https://github.com/akalongman/nbg-rates-mcp/issues",
     "mcpName": "io.github.akalongman/nbg-rates",
     "type": "module",

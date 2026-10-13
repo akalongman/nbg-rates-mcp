@@ -1,4 +1,4 @@
-import { McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { McpServer, ResourceTemplate, type Icon } from '@modelcontextprotocol/server';
 import type * as z from 'zod';
 import { convertAmount, roundedAmount } from '../core/convert.js';
 import { GEL, parseCurrencyCode } from '../core/currency-code.js';
@@ -17,6 +17,7 @@ import {
 import { historyOutput } from './history-output.js';
 import { PROMPTS, promptArgsSchema, renderPrompt } from './prompts.js';
 import type { RatesService } from './rates-service.js';
+import { SITE_ORIGIN } from './site/hosted.js';
 import {
     convertInput,
     convertManyInput,
@@ -34,6 +35,8 @@ export interface ServerDeps {
     readonly service: RatesService;
     readonly now: () => Date;
     readonly version: string;
+    /** Listed in serverInfo; absent or empty sends no icons key at all. */
+    readonly icons?: readonly Icon[];
 }
 
 const ISSUES_URL = 'https://github.com/akalongman/nbg-rates-mcp/issues';
@@ -304,12 +307,18 @@ export const SERVER_INSTRUCTIONS =
 const SERVER_IDENTITY = {
     title: 'NBG Rates (National Bank of Georgia)',
     description: 'GEL exchange rates from the National Bank of Georgia with per-unit values. Not affiliated with NBG.',
-    websiteUrl: 'https://github.com/akalongman/nbg-rates-mcp',
+    websiteUrl: SITE_ORIGIN,
 } as const;
 
 export function createServer(deps: ServerDeps): McpServer {
+    const icons = deps.icons ?? [];
     const server = new McpServer(
-        { name: 'nbg-rates-mcp', version: deps.version, ...SERVER_IDENTITY },
+        {
+            name: 'nbg-rates-mcp',
+            version: deps.version,
+            ...SERVER_IDENTITY,
+            ...(icons.length === 0 ? {} : { icons: [...icons] }),
+        },
         { instructions: SERVER_INSTRUCTIONS },
     );
 

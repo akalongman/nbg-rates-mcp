@@ -1,4 +1,4 @@
-import { CLIENT_INFO_META_KEY, createMcpHandler } from '@modelcontextprotocol/server';
+import { CLIENT_INFO_META_KEY, createMcpHandler, type Icon } from '@modelcontextprotocol/server';
 import * as z from 'zod';
 import type { RatesService } from './rates-service.js';
 import { createServer } from './server.js';
@@ -32,6 +32,8 @@ export interface HttpDeps {
     readonly allowedHosts: readonly string[];
     /** Served at /.well-known/openai-apps-challenge; empty leaves that path a 404. */
     readonly openAiChallenge: string;
+    /** Listed in serverInfo at initialize; empty sends no icons key. */
+    readonly serverIcons: readonly Icon[];
     readonly log: (line: RequestLogLine) => void;
 }
 
@@ -129,7 +131,7 @@ export function reportFailure(error: unknown): void {
 
 function defaultMcpFetch(deps: HttpDeps): (request: Request) => Promise<Response> {
     const handler = createMcpHandler(
-        () => createServer({ service: deps.service, now: deps.now, version: deps.version }),
+        () => createServer({ service: deps.service, now: deps.now, version: deps.version, icons: deps.serverIcons }),
         { legacy: 'stateless' },
     );
     return handler.fetch;

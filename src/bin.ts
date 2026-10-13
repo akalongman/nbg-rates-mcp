@@ -86,6 +86,8 @@ async function main(): Promise<void> {
             version,
             allowedHosts: parseAllowedHosts(process.env['NBG_RATES_HTTP_HOSTS']),
             openAiChallenge: parseOpenAiChallenge(process.env['NBG_RATES_OPENAI_CHALLENGE']),
+            // The icon is the hosted copy's, on its own origin; a self-hosted server lists none.
+            serverIcons: [],
             log: (line) => process.stdout.write(`${JSON.stringify(line)}\n`),
         });
         const running = await serveHttp(handler, { port: options.port, host: options.host });

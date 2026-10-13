@@ -3,7 +3,8 @@
     "name": "io.github.akalongman/nbg-rates",
     "title": "NBG Rates (National Bank of Georgia)",
     "description": "GEL exchange rates from the National Bank of Georgia with per-unit values. Not affiliated with NBG.",
-    "websiteUrl": "https://github.com/akalongman/nbg-rates-mcp",
+    "websiteUrl": "https://nbg-rates.env.ge",
+    "icons": [{ "src": "https://nbg-rates.env.ge/icon.png", "mimeType": "image/png", "sizes": ["512x512"] }],
     "repository": {
         "url": "https://github.com/akalongman/nbg-rates-mcp",
         "source": "github"

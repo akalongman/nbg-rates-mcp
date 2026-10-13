@@ -10,6 +10,7 @@ import {
 } from './http.js';
 import type { RatesService } from './rates-service.js';
 import { FAVICON_ICO_BASE64 } from './site/assets.generated.js';
+import { HOSTED_SERVER_ICONS } from './site/hosted.js';
 import { PAGE_CONTENT_SECURITY_POLICY } from './site/page.js';
 
 const SNAPSHOT: RatesSnapshot = {
@@ -52,6 +53,7 @@ function handlerWith(overrides: Partial<HttpDeps> = {}, mcpFetch?: (request: Req
             version: '0.0.0-test',
             allowedHosts: ['nbg-rates.env.ge'],
             openAiChallenge: '',
+            serverIcons: [],
             log: (line) => lines.push(line),
             ...overrides,
         },
@@ -171,6 +173,17 @@ describe('createHttpHandler', () => {
         });
         expect(lines[0]?.time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
         expect(lines[0]?.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('sends the server icons it is given in serverInfo, and no icons key without them', async () => {
+        const hosted = handlerWith({ serverIcons: HOSTED_SERVER_ICONS });
+        const hostedMessage = await firstMessage(await hosted.handler(post(INITIALIZE)));
+        expect(hostedMessage).toHaveProperty(['result', 'serverInfo', 'icons'], HOSTED_SERVER_ICONS);
+
+        const local = handlerWith();
+        const localMessage = await firstMessage(await local.handler(post(INITIALIZE)));
+        expect(localMessage).toHaveProperty(['result', 'serverInfo', 'name'], 'nbg-rates-mcp');
+        expect(localMessage).not.toHaveProperty(['result', 'serverInfo', 'icons']);
     });
 
     it('logs a tool call with its name and nothing of its arguments', async () => {

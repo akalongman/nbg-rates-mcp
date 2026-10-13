@@ -81,7 +81,7 @@ describe('nbg-rates-mcp over stdio', () => {
             title: 'NBG Rates (National Bank of Georgia)',
             description:
                 'GEL exchange rates from the National Bank of Georgia with per-unit values. Not affiliated with NBG.',
-            websiteUrl: 'https://github.com/akalongman/nbg-rates-mcp',
+            websiteUrl: 'https://nbg-rates.env.ge',
         });
     });
 

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { ApiGatewayV2Event } from './lambda.js';
 import { FAVICON_ICO_BASE64 } from './shell/site/assets.generated.js';
+import { HOSTED_SERVER_ICONS } from './shell/site/hosted.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', 'test', 'fixtures');
 
@@ -32,6 +33,7 @@ describe('lambda handler', () => {
         expect(result.statusCode).toBe(200);
         expect(result.isBase64Encoded).toBe(false);
         expect(firstMessage(result.body)).toMatchObject({ id: 1, result: { serverInfo: { name: 'nbg-rates-mcp' } } });
+        expect(firstMessage(result.body)).toMatchObject({ result: { serverInfo: { icons: HOSTED_SERVER_ICONS } } });
     });
 
     it('decodes a base64 body', async () => {

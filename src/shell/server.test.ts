@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/client';
-import { InMemoryTransport } from '@modelcontextprotocol/server';
+import { InMemoryTransport, type Icon } from '@modelcontextprotocol/server';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod';
@@ -18,6 +18,7 @@ import {
 import { PROMPTS, renderPrompt } from './prompts.js';
 import type { RatesService } from './rates-service.js';
 import { createServer, describeError } from './server.js';
+import { HOSTED_SERVER_ICONS } from './site/hosted.js';
 import { convertManyOutput, getRatesOutput } from './tool-schemas.js';
 
 const stubService: RatesService = {
@@ -77,11 +78,14 @@ function tableService(): { service: RatesService; requests: SnapshotRequest[] } 
     return { service, requests };
 }
 
-async function connectedClient(deps: { service?: RatesService; now?: () => Date } = {}): Promise<Client> {
+async function connectedClient(
+    deps: { service?: RatesService; now?: () => Date; icons?: readonly Icon[] } = {},
+): Promise<Client> {
     const server = createServer({
         service: deps.service ?? stubService,
         now: deps.now ?? (() => new Date('2026-10-08T06:00:00Z')),
         version: '0.0.0-test',
+        ...(deps.icons === undefined ? {} : { icons: deps.icons }),
     });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
@@ -222,6 +226,31 @@ describe('createServer', () => {
             websiteUrl: registryEntry.websiteUrl,
         });
 
+        await client.close();
+    });
+
+    it('sends the hosted icon only when given it, the same one server.json lists', async () => {
+        const registry = z
+            .object({ icons: z.array(z.object({ src: z.string(), mimeType: z.string(), sizes: z.array(z.string()) })) })
+            .parse(JSON.parse(readFileSync(new URL('../../server.json', import.meta.url), 'utf8')));
+        expect(registry.icons).toEqual(HOSTED_SERVER_ICONS);
+
+        const hosted = await connectedClient({ icons: HOSTED_SERVER_ICONS });
+        expect(hosted.getServerVersion()?.icons).toEqual(HOSTED_SERVER_ICONS);
+        await hosted.close();
+
+        const local = await connectedClient();
+        expect(local.getServerVersion()).not.toHaveProperty('icons');
+        await local.close();
+    });
+
+    it('names the landing page as its website, as server.json and package.json do', async () => {
+        const client = await connectedClient();
+        expect(client.getServerVersion()?.websiteUrl).toBe('https://nbg-rates.env.ge');
+        const { homepage } = z
+            .object({ homepage: z.string() })
+            .parse(JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')));
+        expect(homepage).toBe('https://nbg-rates.env.ge');
         await client.close();
     });
 
