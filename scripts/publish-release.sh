@@ -138,12 +138,34 @@ publish_registry() {
     "$publisher_dir/mcp-publisher" publish
 }
 
+# Whether the live alias's description names a release newer than this one,
+# so a re-run of an older release's job leaves production alone. Only a plain
+# release description (vX.Y.Z) counts: a pre-release description or any other
+# text (the placeholder's) never blocks a deploy. This version is compared by
+# its X.Y.Z core in version order (sort -V, so 0.10.0 is newer than 0.2.0),
+# and a pre-release of the live release (0.6.0-rc.1 while v0.6.0 is live) is
+# older than it.
+newer_release_is_live() {
+    local live=$1 live_core core=${version%%-*}
+    [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || return 1
+    [[ $live =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || return 1
+    live_core=${BASH_REMATCH[1]}
+    if [ "$live_core" = "$core" ]; then
+        [ "$version" != "$core" ]
+        return
+    fi
+    [ "$(printf '%s\n%s\n' "$core" "$live_core" | sort -V | tail -n 1)" = "$live_core" ]
+}
+
 # Ships the tag's build to the hosted endpoint: upload, publish an immutable
 # version described with the tag, move the alias, smoke test the public URL,
-# and move the alias back if the smoke test fails. FUNCTION_NAME,
-# FUNCTION_ALIAS and MCP_URL come from the repository variables that the
-# infrastructure's Terraform output sets. Every read uses --query and
-# --output text so a variable never holds JSON.
+# and move the alias back if the smoke test fails. An alias already on this
+# release is smoke tested again, because a run stopped after the alias moved
+# left it unverified; an alias on a newer release is left alone. The smoke
+# test needs node alone and loads no installed package, since this step holds
+# the AWS session. FUNCTION_NAME, FUNCTION_ALIAS and MCP_URL come from the
+# repository variables that the infrastructure's Terraform output sets. Every
+# read uses --query and --output text so a variable never holds JSON.
 publish_lambda() {
     local zip="$package-$version-lambda.zip" previous current new
     : "${FUNCTION_NAME:?FUNCTION_NAME is not set}" "${FUNCTION_ALIAS:?FUNCTION_ALIAS is not set}" "${MCP_URL:?MCP_URL is not set}"
@@ -156,7 +178,19 @@ publish_lambda() {
     current=$(aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --qualifier "$previous" \
         --query Description --output text)
     if [ "$current" = "v$version" ]; then
-        echo "$FUNCTION_NAME $FUNCTION_ALIAS is already v$version"
+        echo "$FUNCTION_NAME $FUNCTION_ALIAS is already v$version; smoke testing it"
+        if ! node scripts/smoke-http.ts "$MCP_URL" "$version"; then
+            # The version this one replaced is not known here, so the rollback is left to a person.
+            echo "$FUNCTION_NAME $FUNCTION_ALIAS serves v$version as version $previous, which fails the smoke test." >&2
+            echo "Pick the last good version and move the alias to it by hand:" >&2
+            echo "  aws lambda list-versions-by-function --function-name $FUNCTION_NAME --query 'Versions[].[Version,Description]' --output text" >&2
+            echo "  aws lambda update-alias --function-name $FUNCTION_NAME --name $FUNCTION_ALIAS --function-version <version>" >&2
+            exit 1
+        fi
+        return
+    fi
+    if newer_release_is_live "$current"; then
+        echo "$FUNCTION_NAME $FUNCTION_ALIAS serves $current, newer than v$version; not deploying an older release"
         return
     fi
     [ -f "$zip" ] || { echo "$zip is not here; run scripts/build-lambda.sh $version first" >&2; exit 1; }
@@ -167,7 +201,7 @@ publish_lambda() {
         --query Version --output text)
     aws lambda update-alias --function-name "$FUNCTION_NAME" --name "$FUNCTION_ALIAS" --function-version "$new" \
         --query FunctionVersion --output text
-    if ! npx tsx scripts/smoke-http.ts "$MCP_URL" "$version"; then
+    if ! node scripts/smoke-http.ts "$MCP_URL" "$version"; then
         aws lambda update-alias --function-name "$FUNCTION_NAME" --name "$FUNCTION_ALIAS" --function-version "$previous"
         echo "rolled back $FUNCTION_ALIAS to version $previous"
         exit 1

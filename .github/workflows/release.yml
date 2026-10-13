@@ -70,11 +70,16 @@ jobs:
       - name: Publish to the MCP registry
         run: ./scripts/publish-release.sh registry "${GITHUB_REF_NAME#v}"
 
-  # Ships the build to the hosted endpoint. Skipped where the infrastructure's variables are absent (a fork).
+  # Ships the build to the hosted endpoint. Skipped where the infrastructure's variables are absent (a fork). Holds the
+  # AWS session and runs no installed package: the smoke test needs node alone.
   deploy:
     needs: publish
     if: vars.AWS_ROLE_ARN != ''
     runs-on: ubuntu-latest
+    # One function and one alias: deploys of different tags queue here instead of racing over them.
+    concurrency:
+      group: lambda-deploy
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
@@ -91,8 +96,6 @@ jobs:
           name: release
       - name: Build the Lambda zip from the published tarball
         run: ./scripts/build-lambda.sh "${GITHUB_REF_NAME#v}"
-      - name: Install the smoke test's client
-        run: npm ci --ignore-scripts
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
