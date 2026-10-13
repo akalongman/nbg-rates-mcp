@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { buffer } from 'node:stream/consumers';
 import { fromWebResponse, toWebRequest } from './http-adapter.js';
+import { reportFailure } from './http.js';
 
 export interface ServeOptions {
     /** 0 picks a free port. */
@@ -45,9 +46,12 @@ export async function serveHttp(
 
     const server: Server = createServer((request, response) => {
         respond(request, response).catch((error: unknown) => {
-            const name = error instanceof Error ? error.constructor.name : 'Error';
-            // Never the message: it can quote the request URL or headers.
-            console.error(`${name} http handler failed`);
+            // A body that never arrived whole is a client that hung up mid-upload: nobody to answer, nothing broken.
+            // Not request.destroyed, which Node also sets once a complete body has been read.
+            if (!request.complete) {
+                return;
+            }
+            reportFailure(error);
             if (!response.headersSent) {
                 response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
             }

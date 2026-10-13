@@ -1,17 +1,12 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
-import { createSnapshotCache } from './shell/cache.js';
+import { createServiceFromEnvironment, readPackageVersion } from './shell/environment.js';
 import { createHttpHandler, parseAllowedHosts } from './shell/http.js';
 import { serveHttp } from './shell/http-node.js';
-import { createNbgClient } from './shell/nbg-client.js';
-import { createRatesService } from './shell/rates-service.js';
 import { createServer } from './shell/server.js';
 
-// JSON-parse boundary: the package's own package.json, shipped beside dist/ and always carrying a version.
-const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
-    version: string;
-};
+// The package's own package.json, shipped beside dist/.
+const version = readPackageVersion(new URL('../package.json', import.meta.url));
 
 const HELP = `nbg-rates-mcp ${version}
 MCP server for official National Bank of Georgia exchange rates.
@@ -81,14 +76,7 @@ async function main(): Promise<void> {
         return;
     }
 
-    const baseUrl = (process.env['NBG_RATES_BASE_URL'] ?? 'https://nbg.gov.ge').replace(/\/+$/, '');
-    const debug = process.env['NBG_RATES_DEBUG'] === '1';
-    const client = createNbgClient({
-        baseUrl,
-        userAgent: `nbg-rates-mcp/${version} (+https://github.com/akalongman/nbg-rates-mcp)`,
-        ...(debug ? { log: (message: string) => console.error(`[nbg-rates-mcp] ${message}`) } : {}),
-    });
-    const service = createRatesService({ client, cache: createSnapshotCache(), now: () => new Date() });
+    const { service, baseUrl } = createServiceFromEnvironment(version, process.env);
 
     if (options.http) {
         const handler = createHttpHandler({

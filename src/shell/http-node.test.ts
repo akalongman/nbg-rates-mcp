@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import * as http from 'node:http';
+import { connect } from 'node:net';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { serveHttp } from './http-node.js';
 
 describe('serveHttp', () => {
@@ -46,5 +48,69 @@ describe('serveHttp', () => {
         );
         close = () => server.close();
         expect(await (await fetch(`http://127.0.0.1:${server.port}/`)).text()).toBe('no body');
+    });
+
+    it('answers 500 with the constructor-name line when the URL cannot be built', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        try {
+            let called = false;
+            const server = await serveHttp(
+                () => {
+                    called = true;
+                    return Promise.resolve(new Response('unreachable'));
+                },
+                { port: 0, host: '127.0.0.1' },
+            );
+            close = () => server.close();
+            // fetch drops a Host header it is given, so the malformed host goes out on a raw node:http request.
+            const answer = await new Promise<{ status: number | undefined; body: string }>((resolve, reject) => {
+                http.request(
+                    { host: '127.0.0.1', port: server.port, path: '/mcp', headers: { host: 'a:b' } },
+                    (response) => {
+                        let body = '';
+                        response.setEncoding('utf8');
+                        response.on('data', (chunk: string) => (body += chunk));
+                        response.on('end', () => resolve({ status: response.statusCode, body }));
+                    },
+                )
+                    .on('error', reject)
+                    .end();
+            });
+            expect(answer).toEqual({ status: 500, body: 'Internal error' });
+            expect(called).toBe(false);
+            expect(consoleError.mock.calls).toEqual([['TypeError http handler failed']]);
+        } finally {
+            consoleError.mockRestore();
+        }
+    });
+
+    it('prints nothing for a client that hangs up mid-upload', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        try {
+            let called = false;
+            const server = await serveHttp(
+                () => {
+                    called = true;
+                    return Promise.resolve(new Response('unreachable'));
+                },
+                { port: 0, host: '127.0.0.1' },
+            );
+            close = () => server.close();
+            await new Promise<void>((resolve, reject) => {
+                const socket = connect(server.port, '127.0.0.1', () => {
+                    // Three of the hundred bytes promised, then gone.
+                    socket.end('POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100\r\n\r\nabc', () =>
+                        socket.destroy(),
+                    );
+                });
+                socket.on('error', reject).on('close', () => resolve());
+            });
+            // The server sees the hang-up as its body read failing; give that failure time to reach the catch.
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(called).toBe(false);
+            expect(consoleError).not.toHaveBeenCalled();
+        } finally {
+            consoleError.mockRestore();
+        }
     });
 });

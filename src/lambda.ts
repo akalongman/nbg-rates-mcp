@@ -1,9 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { createSnapshotCache } from './shell/cache.js';
+import { createServiceFromEnvironment, readPackageVersion } from './shell/environment.js';
 import { fromWebResponse, toWebRequest } from './shell/http-adapter.js';
 import { createHttpHandler, parseAllowedHosts } from './shell/http.js';
-import { createNbgClient } from './shell/nbg-client.js';
-import { createRatesService } from './shell/rates-service.js';
 
 /**
  * AWS Lambda entry behind an API Gateway HTTP API (payload format 2.0). The event and result interfaces name only the
@@ -28,19 +25,9 @@ export interface ApiGatewayV2Result {
     readonly isBase64Encoded: boolean;
 }
 
-// JSON-parse boundary: the package's own package.json, zipped beside dist/.
-const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
-    version: string;
-};
-
-const baseUrl = (process.env['NBG_RATES_BASE_URL'] ?? 'https://nbg.gov.ge').replace(/\/+$/, '');
-const debug = process.env['NBG_RATES_DEBUG'] === '1';
-const client = createNbgClient({
-    baseUrl,
-    userAgent: `nbg-rates-mcp/${version} (+https://github.com/akalongman/nbg-rates-mcp)`,
-    ...(debug ? { log: (message: string) => console.error(`[nbg-rates-mcp] ${message}`) } : {}),
-});
-const service = createRatesService({ client, cache: createSnapshotCache(), now: () => new Date() });
+// The package's own package.json, zipped beside dist/.
+const version = readPackageVersion(new URL('../package.json', import.meta.url));
+const { service } = createServiceFromEnvironment(version, process.env);
 const handle = createHttpHandler({
     service,
     now: () => new Date(),

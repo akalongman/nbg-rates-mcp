@@ -111,9 +111,10 @@ function text(status: number, body: string): Response {
     return new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 }
 
-function reportFailure(error: unknown): void {
+/** The one stderr line for a failed request, shared with http-node.ts. */
+export function reportFailure(error: unknown): void {
     const name = error instanceof Error ? error.constructor.name : 'Error';
-    // Never the message: it can quote the request body or a user's arguments.
+    // Never the message: it can quote the request URL, headers, body or a user's arguments.
     console.error(`${name} http handler failed`);
 }
 
