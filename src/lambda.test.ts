@@ -39,11 +39,11 @@ describe('lambda handler', () => {
         expect(firstMessage(result.body)).toMatchObject({ id: 1 });
     });
 
-    it('answers GET / with the text', async () => {
+    it('answers GET / on the hosted host with the page', async () => {
         const result = await handler(event('apigw-get-root'));
         expect(result.statusCode).toBe(200);
-        expect(result.headers['content-type']).toMatch(/^text\/plain/);
-        expect(result.body).toContain('MCP endpoint: POST /mcp');
+        expect(result.headers['content-type']).toBe('text/html; charset=utf-8');
+        expect(result.body).toContain('<html lang="en">');
     });
 
     it('refuses a foreign host', async () => {

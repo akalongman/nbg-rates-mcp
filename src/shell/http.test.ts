@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { code, date } from '../../test/helpers/values.js';
 import { err, ok, type RatesSnapshot } from '../core/types.js';
-import { createHttpHandler, parseAllowedHosts, type HttpDeps, type RequestLogLine } from './http.js';
+import {
+    createHttpHandler,
+    parseAllowedHosts,
+    parseOpenAiChallenge,
+    type HttpDeps,
+    type RequestLogLine,
+} from './http.js';
 import type { RatesService } from './rates-service.js';
+import { FAVICON_ICO_BASE64 } from './site/assets.generated.js';
+import { PAGE_CONTENT_SECURITY_POLICY } from './site/page.js';
 
 const SNAPSHOT: RatesSnapshot = {
     requestedDate: date('2026-10-07'),
@@ -43,6 +51,7 @@ function handlerWith(overrides: Partial<HttpDeps> = {}, mcpFetch?: (request: Req
             now: () => new Date('2026-10-08T06:00:00Z'),
             version: '0.0.0-test',
             allowedHosts: ['nbg-rates.env.ge'],
+            openAiChallenge: '',
             log: (line) => lines.push(line),
             ...overrides,
         },
@@ -63,6 +72,10 @@ function post(body: unknown, options: { host?: string; path?: string; accept?: s
     });
 }
 
+function get(path: string, options: { host?: string; method?: string } = {}): Request {
+    return new Request(`https://${options.host ?? 'nbg-rates.env.ge'}${path}`, { method: options.method ?? 'GET' });
+}
+
 /** The first JSON-RPC message of a JSON or SSE response body. */
 async function firstMessage(response: Response): Promise<Record<string, unknown>> {
     const text = await response.text();
@@ -81,10 +94,18 @@ describe('parseAllowedHosts', () => {
     });
 });
 
+describe('parseOpenAiChallenge', () => {
+    it('trims a pasted token and reads unset as empty', () => {
+        expect(parseOpenAiChallenge('  token-123\n')).toBe('token-123');
+        expect(parseOpenAiChallenge(undefined)).toBe('');
+        expect(parseOpenAiChallenge(' \n')).toBe('');
+    });
+});
+
 describe('createHttpHandler', () => {
     it('answers GET / with the version and the endpoint path', async () => {
-        const { handler, lines } = handlerWith();
-        const response = await handler(new Request('https://nbg-rates.env.ge/'));
+        const { handler, lines } = handlerWith({ allowedHosts: [] });
+        const response = await handler(new Request('https://localhost/'));
         expect(response.status).toBe(200);
         expect(response.headers.get('content-type')).toMatch(/^text\/plain/);
         expect(await response.text()).toBe(
@@ -264,5 +285,94 @@ describe('createHttpHandler', () => {
         } finally {
             consoleError.mockRestore();
         }
+    });
+});
+
+describe('site paths', () => {
+    it.each([
+        ['/', 'text/html; charset=utf-8', 'public, max-age=300'],
+        ['/ka', 'text/html; charset=utf-8', 'public, max-age=300'],
+        ['/ka/', 'text/html; charset=utf-8', 'public, max-age=300'],
+        ['/favicon.ico', 'image/x-icon', 'public, max-age=86400'],
+        ['/icon.png', 'image/png', 'public, max-age=86400'],
+        ['/apple-touch-icon.png', 'image/png', 'public, max-age=86400'],
+        ['/og.png', 'image/png', 'public, max-age=86400'],
+        ['/robots.txt', 'text/plain; charset=utf-8', 'public, max-age=86400'],
+    ])('answers GET %s with %s, its cache header and no log line', async (path, contentType, cacheControl) => {
+        const { handler, lines } = handlerWith();
+        const response = await handler(get(path));
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toBe(contentType);
+        expect(response.headers.get('cache-control')).toBe(cacheControl);
+        expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+        expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+        expect(lines).toEqual([]);
+    });
+
+    it('serves the English page at / and the Georgian one at /ka, with a port and a query', async () => {
+        const { handler } = handlerWith();
+        const english = await handler(get('/?ref=x', { host: 'nbg-rates.env.ge:8443' }));
+        expect(english.headers.get('content-security-policy')).toBe(PAGE_CONTENT_SECURITY_POLICY);
+        const englishHtml = await english.text();
+        expect(englishHtml).toContain('<html lang="en">');
+        expect(englishHtml).toContain('nbg-rates-mcp 0.0.0-test');
+        expect(await (await handler(get('/ka/'))).text()).toContain('<html lang="ka">');
+    });
+
+    it('keeps the one-line text at / and a 404 at /ka on any other host, and serves the icons there', async () => {
+        const { handler } = handlerWith({ allowedHosts: [] });
+        const root = await handler(get('/', { host: 'localhost:3000' }));
+        expect(root.headers.get('content-type')).toMatch(/^text\/plain/);
+        expect(await root.text()).toContain('MCP endpoint: POST /mcp');
+        expect((await handler(get('/ka', { host: 'localhost:3000' }))).status).toBe(404);
+        expect((await handler(get('/favicon.ico', { host: 'localhost:3000' }))).status).toBe(200);
+    });
+
+    it('answers HEAD with the headers and no body', async () => {
+        const { handler } = handlerWith();
+        for (const path of ['/', '/favicon.ico']) {
+            const response = await handler(get(path, { method: 'HEAD' }));
+            expect(response.status).toBe(200);
+            expect(response.headers.get('cache-control')).not.toBeNull();
+            expect(await response.text()).toBe('');
+        }
+    });
+
+    it.each(['POST', 'PUT', 'DELETE'])('answers %s on a site path with 405 and Allow: GET, HEAD', async (method) => {
+        const { handler, lines } = handlerWith();
+        for (const path of ['/', '/ka', '/favicon.ico', '/robots.txt']) {
+            const response = await handler(get(path, { method }));
+            expect(response.status).toBe(405);
+            expect(response.headers.get('allow')).toBe('GET, HEAD');
+            expect(await response.text()).toBe('Method not allowed.');
+        }
+        expect(lines).toEqual([]);
+    });
+
+    it('serves the favicon bytes and a robots.txt that keeps crawlers off /mcp', async () => {
+        const { handler } = handlerWith();
+        const favicon = new Uint8Array(await (await handler(get('/favicon.ico'))).arrayBuffer());
+        expect(Buffer.from(favicon).equals(Buffer.from(FAVICON_ICO_BASE64, 'base64'))).toBe(true);
+        expect(await (await handler(get('/robots.txt'))).text()).toBe('User-agent: *\nDisallow: /mcp\n');
+    });
+
+    it('answers the OpenAI challenge with the token alone, uncached, once one is set', async () => {
+        const { handler, lines } = handlerWith({ openAiChallenge: 'token-123' });
+        const response = await handler(get('/.well-known/openai-apps-challenge'));
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+        expect(response.headers.get('cache-control')).toBe('no-store');
+        expect(await response.text()).toBe('token-123');
+        expect(lines).toEqual([]);
+    });
+
+    it('answers the challenge path 404 while no token is set', async () => {
+        const { handler } = handlerWith();
+        expect((await handler(get('/.well-known/openai-apps-challenge'))).status).toBe(404);
+    });
+
+    it('checks the host before any site path', async () => {
+        const { handler } = handlerWith();
+        expect((await handler(get('/favicon.ico', { host: 'evil.example' }))).status).toBe(421);
     });
 });

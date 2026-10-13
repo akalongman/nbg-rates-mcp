@@ -1,6 +1,6 @@
 import { createServiceFromEnvironment, readPackageVersion } from './shell/environment.js';
 import { handleIncoming } from './shell/http-adapter.js';
-import { createHttpHandler, parseAllowedHosts } from './shell/http.js';
+import { createHttpHandler, parseAllowedHosts, parseOpenAiChallenge } from './shell/http.js';
 
 /**
  * AWS Lambda entry behind an API Gateway HTTP API (payload format 2.0). The event and result interfaces name only the
@@ -33,6 +33,7 @@ const handle = createHttpHandler({
     now: () => new Date(),
     version,
     allowedHosts: parseAllowedHosts(process.env['NBG_RATES_HTTP_HOSTS']),
+    openAiChallenge: parseOpenAiChallenge(process.env['NBG_RATES_OPENAI_CHALLENGE']),
     // Lambda forwards stdout to CloudWatch; one line per request, text format, fields discovered by Logs Insights.
     log: (line) => console.log(JSON.stringify(line)),
 });

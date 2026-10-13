@@ -2,9 +2,11 @@ import { CLIENT_INFO_META_KEY, createMcpHandler } from '@modelcontextprotocol/se
 import * as z from 'zod';
 import type { RatesService } from './rates-service.js';
 import { createServer } from './server.js';
+import { createSiteResponder } from './site/routes.js';
 
 /**
- * The HTTP face of the server: Host validation, path routing and one log line per MCP request around the SDK's
+ * The HTTP face of the server: Host validation, the site paths (the landing page, the icons, robots.txt and OpenAI's
+ * domain challenge, decided in site/routes.ts), path routing and one log line per MCP request around the SDK's
  * stateless Streamable HTTP handler. Host-neutral: http-node.ts serves it on a port, lambda.ts behind API Gateway.
  */
 
@@ -28,6 +30,8 @@ export interface HttpDeps {
     readonly version: string;
     /** Host names the endpoint answers for; empty disables the check. */
     readonly allowedHosts: readonly string[];
+    /** Served at /.well-known/openai-apps-challenge; empty leaves that path a 404. */
+    readonly openAiChallenge: string;
     readonly log: (line: RequestLogLine) => void;
 }
 
@@ -40,6 +44,11 @@ export function parseAllowedHosts(value: string | undefined): readonly string[] 
         .split(',')
         .map((host) => host.trim().toLowerCase())
         .filter((host) => host !== '');
+}
+
+/** Reads NBG_RATES_OPENAI_CHALLENGE: trimmed, so a pasted newline is not served; unset reads as empty. */
+export function parseOpenAiChallenge(value: string | undefined): string {
+    return (value ?? '').trim();
 }
 
 const clientInfo = z.object({ name: z.string(), version: z.string() });
@@ -130,10 +139,15 @@ export function createHttpHandler(
     deps: HttpDeps,
     mcpFetch: (request: Request) => Promise<Response> = defaultMcpFetch(deps),
 ): (request: Request) => Promise<Response> {
+    const site = createSiteResponder({ version: deps.version, openAiChallenge: deps.openAiChallenge });
     return async function handle(request: Request): Promise<Response> {
         const url = new URL(request.url);
         if (deps.allowedHosts.length > 0 && !deps.allowedHosts.includes(url.hostname.toLowerCase())) {
             return text(421, `This server answers only for ${deps.allowedHosts.join(', ')}.`);
+        }
+        const siteAnswer = site(request.method, url);
+        if (siteAnswer !== undefined) {
+            return siteAnswer;
         }
         const path = url.pathname === `${ENDPOINT_PATH}/` ? ENDPOINT_PATH : url.pathname;
         if (path === '/' && (request.method === 'GET' || request.method === 'HEAD')) {

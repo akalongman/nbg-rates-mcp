@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { createServiceFromEnvironment, readPackageVersion } from './shell/environment.js';
-import { createHttpHandler, parseAllowedHosts } from './shell/http.js';
+import { createHttpHandler, parseAllowedHosts, parseOpenAiChallenge } from './shell/http.js';
 import { serveHttp } from './shell/http-node.js';
 import { createServer } from './shell/server.js';
 
@@ -19,9 +19,10 @@ Usage: nbg-rates-mcp [--http [--port <n>] [--host <address>]] [--version] [--hel
   --host <address>  Address for --http (default 127.0.0.1).
 
 Environment:
-  NBG_RATES_BASE_URL    Override the NBG host (default https://nbg.gov.ge)
-  NBG_RATES_DEBUG=1     Log every upstream request to stderr
-  NBG_RATES_HTTP_HOSTS  Host names the HTTP endpoint answers for, comma separated (unset or empty: any)
+  NBG_RATES_BASE_URL          Override the NBG host (default https://nbg.gov.ge)
+  NBG_RATES_DEBUG=1           Log every upstream request to stderr
+  NBG_RATES_HTTP_HOSTS        Host names the HTTP endpoint answers for, comma separated (unset or empty: any)
+  NBG_RATES_OPENAI_CHALLENGE  Token served at /.well-known/openai-apps-challenge for OpenAI's domain check (unset or empty: 404)
 `;
 
 interface Options {
@@ -84,6 +85,7 @@ async function main(): Promise<void> {
             now: () => new Date(),
             version,
             allowedHosts: parseAllowedHosts(process.env['NBG_RATES_HTTP_HOSTS']),
+            openAiChallenge: parseOpenAiChallenge(process.env['NBG_RATES_OPENAI_CHALLENGE']),
             log: (line) => process.stdout.write(`${JSON.stringify(line)}\n`),
         });
         const running = await serveHttp(handler, { port: options.port, host: options.host });

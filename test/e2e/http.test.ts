@@ -4,6 +4,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import * as http from 'node:http';
 import { dirname, join } from 'node:path';
+import { buffer } from 'node:stream/consumers';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as z from 'zod';
@@ -33,7 +34,7 @@ async function startHttpChild(baseUrl: string): Promise<HttpChild> {
         }
     }
     env['NBG_RATES_BASE_URL'] = `${baseUrl}/`;
-    env['NBG_RATES_HTTP_HOSTS'] = '127.0.0.1';
+    env['NBG_RATES_HTTP_HOSTS'] = '127.0.0.1,nbg-rates.env.ge';
     env['TZ'] = 'America/Los_Angeles';
     const child = spawn(process.execPath, [BIN, '--http', '--port', '0'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     const stdout: string[] = [];
@@ -59,6 +60,27 @@ async function startHttpChild(baseUrl: string): Promise<HttpChild> {
         );
     });
     return { process: child, url, stdout };
+}
+
+interface RawResponse {
+    readonly status: number | undefined;
+    readonly headers: http.IncomingHttpHeaders;
+    readonly body: Buffer;
+}
+
+/** A GET with the given Host header. fetch drops a Host header it is given, so this goes out on raw node:http. */
+function rawGet(origin: string, path: string, host: string): Promise<RawResponse> {
+    const { hostname, port } = new URL(origin);
+    return new Promise((resolve, reject) => {
+        http.request({ host: hostname, port: Number(port), path, headers: { host } }, (response) => {
+            buffer(response).then(
+                (body) => resolve({ status: response.statusCode, headers: response.headers, body }),
+                reject,
+            );
+        })
+            .on('error', reject)
+            .end();
+    });
 }
 
 async function connect(url: string): Promise<Client> {
@@ -175,18 +197,22 @@ describe('nbg-rates-mcp over Streamable HTTP', () => {
         const root = await fetch(`${origin}/`);
         expect(root.status).toBe(200);
         expect(await root.text()).toContain(`nbg-rates-mcp ${version}`);
-        // fetch drops a Host header it is given, so the foreign host goes out on a raw node:http request.
-        const foreignStatus = await new Promise<number | undefined>((resolve, reject) => {
-            http.request(
-                { host: '127.0.0.1', port: Number(new URL(origin).port), path: '/', headers: { host: 'evil.example' } },
-                (response) => {
-                    response.resume();
-                    response.on('end', () => resolve(response.statusCode));
-                },
-            )
-                .on('error', reject)
-                .end();
-        });
-        expect(foreignStatus).toBe(421);
+        expect((await rawGet(origin, '/', 'evil.example')).status).toBe(421);
+    });
+
+    it('serves the page for the hosted host, the text for 127.0.0.1 and the favicon', async () => {
+        const origin = new URL(child.url).origin;
+        const page = await rawGet(origin, '/', 'nbg-rates.env.ge');
+        expect(page.status).toBe(200);
+        expect(page.headers['content-type']).toBe('text/html; charset=utf-8');
+        expect(page.body.toString('utf8')).toContain(`nbg-rates-mcp ${version}`);
+        expect(await (await fetch(`${origin}/`)).text()).toContain('MCP endpoint: POST /mcp');
+        const favicon = await fetch(`${origin}/favicon.ico`);
+        expect(favicon.headers.get('content-type')).toBe('image/x-icon');
+        expect(
+            Buffer.from(await favicon.arrayBuffer())
+                .subarray(0, 4)
+                .toString('hex'),
+        ).toBe('00000100');
     });
 });
