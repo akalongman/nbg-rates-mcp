@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.5.0 - 2026-10-13
+
+Added: a hosted endpoint at `https://nbg-rates.env.ge/mcp` for claude.ai, Claude mobile and ChatGPT, with nothing to install; `nbg-rates-mcp --http` (`--port`, `--host`) to serve the same Streamable HTTP endpoint locally; a Lambda entry `dist/lambda.handler` for API Gateway; the `NBG_RATES_HTTP_HOSTS` variable. The release workflow deploys each release to the hosted endpoint and rolls back when its smoke test fails.
+
 ## 0.4.0 - 2026-10-12
 
 Added: `nbg_convert_many`, a batch of conversions, each at the rate of its own date, with per-item errors and a total; `resultRounded` on every conversion, computed exactly and rounded half up to two decimals; a `summary` (first, last, change, lowest, highest, calendar-day average) on `nbg_rate_history`.

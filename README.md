@@ -27,6 +27,18 @@ NBG sets rates on business days around 17:00 Tbilisi time, valid from the next c
 
 ## Install
 
+### claude.ai, Claude mobile and ChatGPT (nothing to install)
+
+Paste this URL as a custom connector:
+
+```text
+https://nbg-rates.env.ge/mcp
+```
+
+On claude.ai open Settings, then Connectors, then "Add custom connector", paste the URL and save; the connector then also appears in the Claude mobile apps and in Claude Desktop under the same account. In ChatGPT, custom connectors need developer mode and may require a paid plan.
+
+This hosted copy is the latest release of this server, run by the maintainer on AWS. It needs no account and never records the amounts, dates or currencies asked. It keeps two logs for 30 days: which tool was called from which client, and the gateway's access log (time, path, status, and the caller's IP address and user agent; for claude.ai and ChatGPT the caller is Anthropic's or OpenAI's server).
+
 ### Claude Desktop (macOS, Windows)
 
 Download [nbg-rates-mcp-latest.mcpb](https://github.com/akalongman/nbg-rates-mcp/releases/latest/download/nbg-rates-mcp-latest.mcpb) and open it. Claude Desktop installs the extension and runs it with its own Node.js, so nothing else is needed. The same file, under its version number, is attached to every [release](https://github.com/akalongman/nbg-rates-mcp/releases).
@@ -97,6 +109,10 @@ Add the same `mcpServers` entry to the client's MCP settings. In Cursor that is 
 - WSL: the same commands as Debian and Ubuntu, run inside the WSL shell.
 
 The rest of this document is for developers and for people writing instructions for a model.
+
+### Self-hosting
+
+The same server speaks Streamable HTTP: `nbg-rates-mcp --http --port 3000` serves `http://127.0.0.1:3000/mcp` (add `--host 0.0.0.0` to listen on every interface). On AWS Lambda behind an API Gateway HTTP API, the handler is `dist/lambda.handler` of the npm package with its production dependencies zipped beside it. Set `NBG_RATES_HTTP_HOSTS` to the public host name in either case, so the endpoint answers only for it.
 
 ## Tools
 
@@ -342,10 +358,11 @@ Reading the resource fails with the same messages.
 
 ## Environment variables
 
-| Variable             | Effect                                                                                                   |
-| -------------------- | -------------------------------------------------------------------------------------------------------- |
-| `NBG_RATES_BASE_URL` | The NBG host to call. Defaults to `https://nbg.gov.ge`; a trailing slash is removed. Useful for testing. |
-| `NBG_RATES_DEBUG`    | Set to `1` to log every upstream request to stderr. Include this log in bug reports.                     |
+| Variable               | Effect                                                                                                   |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `NBG_RATES_BASE_URL`   | The NBG host to call. Defaults to `https://nbg.gov.ge`; a trailing slash is removed. Useful for testing. |
+| `NBG_RATES_DEBUG`      | Set to `1` to log every upstream request to stderr. Include this log in bug reports.                     |
+| `NBG_RATES_HTTP_HOSTS` | Host names the HTTP endpoint (`--http`, Lambda) answers for, comma separated. Unset: any host.           |
 
 Set them in the client's configuration, for example:
 
