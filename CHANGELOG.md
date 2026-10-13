@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## 0.5.0 - 2026-10-13
 
-Added: a hosted endpoint at `https://nbg-rates.env.ge/mcp` for claude.ai, Claude mobile and ChatGPT, with nothing to install; `nbg-rates-mcp --http` (`--port`, `--host`) to serve the same Streamable HTTP endpoint locally; a Lambda entry `dist/lambda.handler` for API Gateway; the `NBG_RATES_HTTP_HOSTS` variable. The release workflow deploys each release to the hosted endpoint and rolls back when its smoke test fails.
+Added: a hosted endpoint at `https://nbg-rates.env.ge/mcp` for claude.ai, Claude mobile and ChatGPT, with nothing to install; `nbg-rates-mcp --http` (`--port`, `--host`) to serve the same Streamable HTTP endpoint locally; a Lambda entry `dist/lambda.handler` for API Gateway; the `NBG_RATES_HTTP_HOSTS` variable. server.json lists the hosted endpoint as a remote, so MCP Registry clients can find it. The release workflow deploys each release to the hosted endpoint and rolls back when its smoke test fails.
 
 ## 0.4.0 - 2026-10-12
 

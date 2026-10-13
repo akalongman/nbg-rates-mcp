@@ -3,4 +3,5 @@ dist/
 bundle/
 *.mcpb
 *.tgz
+*-lambda.zip
 .DS_Store

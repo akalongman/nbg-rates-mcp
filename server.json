@@ -18,5 +18,6 @@
             "runtimeHint": "npx",
             "transport": { "type": "stdio" }
         }
-    ]
+    ],
+    "remotes": [{ "type": "streamable-http", "url": "https://nbg-rates.env.ge/mcp" }]
 }

@@ -1,6 +1,6 @@
 # nbg-rates-mcp
 
-Ask Claude, or any other MCP client, for the official National Bank of Georgia (NBG) rate of the lari (GEL) on any date, or to convert an amount at that rate. `nbg-rates-mcp` runs on your machine, needs no account and no key, and encodes the rules a raw lookup gets wrong: per-unit values, Tbilisi calendar days, an explicit flag when a day has no rate of its own, and an error, never a stale rate, for a date NBG has not published yet.
+Ask Claude, or any other MCP client, for the official National Bank of Georgia (NBG) rate of the lari (GEL) on any date, or to convert an amount at that rate. `nbg-rates-mcp` runs on your machine or as a hosted connector you paste into claude.ai or ChatGPT, needs no account and no key, and encodes the rules a raw lookup gets wrong: per-unit values, Tbilisi calendar days, an explicit flag when a day has no rate of its own, and an error, never a stale rate, for a date NBG has not published yet.
 
 This is an independent open-source project, not affiliated with the National Bank of Georgia. NBG's website, [nbg.gov.ge](https://nbg.gov.ge), is the source of truth. The NBG endpoints this server reads are undocumented and may change.
 
@@ -35,7 +35,7 @@ Paste this URL as a custom connector:
 https://nbg-rates.env.ge/mcp
 ```
 
-On claude.ai open Settings, then Connectors, then "Add custom connector", paste the URL and save; the connector then also appears in the Claude mobile apps and in Claude Desktop under the same account. In ChatGPT, custom connectors need developer mode and may require a paid plan.
+On claude.ai open Customize, then Connectors, then "+ Add" and "Add custom connector", paste the URL and finish with "Add" (on a Team or Enterprise plan an owner adds it under Organization settings, then Connectors); the connector then also appears in the Claude mobile apps and in Claude Desktop under the same account. In ChatGPT, custom connectors need developer mode and may require a paid plan.
 
 This hosted copy is the latest release of this server, run by the maintainer on AWS. It needs no account and never records the amounts, dates or currencies asked. It keeps two logs for 30 days: which tool was called from which client, and the gateway's access log (time, path, status, and the caller's IP address and user agent; for claude.ai and ChatGPT the caller is Anthropic's or OpenAI's server).
 
@@ -112,7 +112,7 @@ The rest of this document is for developers and for people writing instructions 
 
 ### Self-hosting
 
-The same server speaks Streamable HTTP: `nbg-rates-mcp --http --port 3000` serves `http://127.0.0.1:3000/mcp` (add `--host 0.0.0.0` to listen on every interface). On AWS Lambda behind an API Gateway HTTP API, the handler is `dist/lambda.handler` of the npm package with its production dependencies zipped beside it. Set `NBG_RATES_HTTP_HOSTS` to the public host name in either case, so the endpoint answers only for it.
+The same server speaks Streamable HTTP: `nbg-rates-mcp --http --port 3000` serves `http://127.0.0.1:3000/mcp` (add `--host 0.0.0.0` to listen on every interface). On AWS Lambda the handler is `dist/lambda.handler` of the npm package with its production dependencies zipped beside it, behind an API Gateway HTTP API with payload format 2.0 and the `$default` stage (a named stage prefixes every path with its name, so each request would get a 404). Set `NBG_RATES_HTTP_HOSTS` to the public host name in either case, so the endpoint answers only for it.
 
 ## Tools
 
@@ -362,7 +362,7 @@ Reading the resource fails with the same messages.
 | ---------------------- | -------------------------------------------------------------------------------------------------------- |
 | `NBG_RATES_BASE_URL`   | The NBG host to call. Defaults to `https://nbg.gov.ge`; a trailing slash is removed. Useful for testing. |
 | `NBG_RATES_DEBUG`      | Set to `1` to log every upstream request to stderr. Include this log in bug reports.                     |
-| `NBG_RATES_HTTP_HOSTS` | Host names the HTTP endpoint (`--http`, Lambda) answers for, comma separated. Unset: any host.           |
+| `NBG_RATES_HTTP_HOSTS` | Host names the HTTP endpoint (`--http`, Lambda) answers for, comma separated. Unset or empty: any host.  |
 
 Set them in the client's configuration, for example:
 
