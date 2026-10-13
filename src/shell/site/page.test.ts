@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { COPY_EN } from './copy-en.js';
+import { COPY_KA } from './copy-ka.js';
 import type { PageCopy } from './copy.js';
 import { PAGE_CONTENT_SECURITY_POLICY, escapeHtml, renderPage } from './page.js';
 
@@ -10,8 +11,10 @@ interface PageCase {
     readonly locale: string;
 }
 
-// Task 3 adds the Georgian case.
-const PAGES: readonly PageCase[] = [{ copy: COPY_EN, canonical: 'https://nbg-rates.env.ge/', locale: 'en_US' }];
+const PAGES: readonly PageCase[] = [
+    { copy: COPY_EN, canonical: 'https://nbg-rates.env.ge/', locale: 'en_US' },
+    { copy: COPY_KA, canonical: 'https://nbg-rates.env.ge/ka', locale: 'ka_GE' },
+];
 
 function blocks(html: string, tag: 'style' | 'script'): string[] {
     return [...html.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'g'))].map((match) => match[1] ?? '');
@@ -112,5 +115,21 @@ describe('the English copy', () => {
         expect(COPY_EN.chat[0].answer).toContain('6,376.13');
         expect(COPY_EN.chat[0].answer).toContain('2.6025');
         expect(COPY_EN.chat[1].answer).toContain('2.9257');
+    });
+});
+
+describe('the Georgian copy', () => {
+    it('writes the demo figures the Georgian way', () => {
+        const amount = new Intl.NumberFormat('ka-GE', { minimumFractionDigits: 2 }).format(6376.13);
+        const rate = new Intl.NumberFormat('ka-GE', { minimumFractionDigits: 4 }).format(2.6025);
+        const euro = new Intl.NumberFormat('ka-GE', { minimumFractionDigits: 4 }).format(2.9257);
+        expect(COPY_KA.chat[0].answer).toContain(amount);
+        expect(COPY_KA.chat[0].answer).toContain(rate);
+        expect(COPY_KA.chat[1].answer).toContain(euro);
+    });
+
+    it('links back to English and names the operator in Latin letters too', () => {
+        expect(COPY_KA.otherLanguage).toBe('English');
+        expect(COPY_KA.footer.operatedBy).toContain('Avtandil Kikabidze');
     });
 });
