@@ -7,7 +7,9 @@ one, and this document wins for everything it names. The arithmetic spec of
 
 Amended 2026-10-13 to describe what 0.5.0 shipped, where implementation
 and review corrected this design, and again for 0.5.1, which answers a
-method a web `Request` cannot carry with 405.
+method a web `Request` cannot carry with 405. Amended again for 0.6.0,
+whose landing page, icons and binary Lambda bodies are specified in
+`2026-10-13-landing-page-design.md`, which wins where the two differ.
 
 ## Purpose
 
@@ -169,7 +171,8 @@ Behaviour of the returned function, in order:
    documentation asks for; the SDK's own `hostHeaderValidationResponse`
    helper is not used, because it answers with a JSON-RPC error body and a
    wrong host is not an MCP conversation.
-2. `GET /` answers 200 `text/plain`:
+2. On any host but `nbg-rates.env.ge`, which serves the landing page (see
+   the 0.6.0 design), `GET /` answers 200 `text/plain`:
    `nbg-rates-mcp <version>. MCP endpoint: POST /mcp (Streamable HTTP). Source: https://github.com/akalongman/nbg-rates-mcp`.
    It is the health check for the smoke test and what a person sees who
    opens the host in a browser.
@@ -317,8 +320,9 @@ client, cache and `now` as `bin.ts`, and the HTTP handler with
 URL from `https://` plus the `host` header plus `rawPath` plus `?` and
 `rawQueryString` when not empty, decodes the body from base64 when
 `isBase64Encoded`, calls the handler through the adapter, and returns the
-response with `isBase64Encoded: false` and the body as UTF-8 text (every
-response this server produces is text). The interfaces are local so the
+response with `isBase64Encoded: false` and the body as UTF-8 text when its
+content type is text, and a non-text body (the images of 0.6.0) base64
+encoded with `isBase64Encoded: true`. The interfaces are local so the
 package gains no `@types/aws-lambda` dependency; they name only the
 fields read.
 
