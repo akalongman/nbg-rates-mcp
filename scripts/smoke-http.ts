@@ -1,10 +1,10 @@
 /**
- * Checks a hosted endpoint after a deploy: GET / names the version, GET /favicon.ico answers 200 as image/x-icon,
- * initialize reports the version, the five tools are listed and a conversion returns a two decimal amount. The deploy
- * step that runs it holds the AWS session, so it loads no installed package: it speaks MCP's JSON-RPC over fetch and
- * reads the answer as JSON or as an SSE stream, and it uses only erasable TypeScript syntax, which Node runs as is.
- * Usage: node scripts/smoke-http.ts <url> <version>. Exit 0 on success, 1 with the first failing check on stderr, 2 on
- * a usage error.
+ * Checks a hosted endpoint after a deploy: GET / names the version, GET /favicon.ico answers 200 as image/x-icon with
+ * the bytes of an ICO, initialize reports the version, the five tools are listed and a conversion returns a two decimal
+ * amount. The deploy step that runs it holds the AWS session, so it loads no installed package: it speaks MCP's
+ * JSON-RPC over fetch and reads the answer as JSON or as an SSE stream, and it uses only erasable TypeScript syntax,
+ * which Node runs as is. Usage: node scripts/smoke-http.ts <url> <version>. Exit 0 on success, 1 with the first failing
+ * check on stderr, 2 on a usage error.
  *
  * The conversion is the one check that reaches NBG, whose edge fails now and then, so it is tried up to three times,
  * five seconds apart, when its request fails, the endpoint answers 5xx or the tool answers an error; each retry prints
@@ -179,10 +179,13 @@ if (root.status !== 200 || !rootText.includes(`nbg-rates-mcp ${version}`)) {
 }
 
 const favicon = await fetch(new URL('/favicon.ico', endpoint));
-await favicon.arrayBuffer();
+// An ICO starts with 00 00 01 00; an icon a Lambda sent as text, not base64, still answers 200 image/x-icon.
+const faviconStart = Buffer.from(await favicon.arrayBuffer())
+    .subarray(0, 4)
+    .toString('hex');
 const faviconType = favicon.headers.get('content-type') ?? '';
-if (favicon.status !== 200 || faviconType !== 'image/x-icon') {
-    fail(`GET /favicon.ico answered ${favicon.status} ${faviconType}`);
+if (favicon.status !== 200 || faviconType !== 'image/x-icon' || faviconStart !== '00000100') {
+    fail(`GET /favicon.ico answered ${favicon.status} ${faviconType}, starting with bytes ${faviconStart}`);
 }
 
 const initialize = await call({ endpoint, headers: {} }, 1, 'initialize', {

@@ -22,7 +22,7 @@ Environment:
   NBG_RATES_BASE_URL          Override the NBG host (default https://nbg.gov.ge)
   NBG_RATES_DEBUG=1           Log every upstream request to stderr
   NBG_RATES_HTTP_HOSTS        Host names the HTTP endpoint answers for, comma separated (unset or empty: any)
-  NBG_RATES_OPENAI_CHALLENGE  Token served at /.well-known/openai-apps-challenge for OpenAI's domain check (unset or empty: 404)
+  NBG_RATES_OPENAI_CHALLENGE  OpenAI domain check token at /.well-known/openai-apps-challenge (unset or empty: 404)
 `;
 
 interface Options {

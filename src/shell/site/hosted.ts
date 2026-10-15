@@ -1,6 +1,8 @@
 /**
- * Facts about the maintainer's hosted copy at nbg-rates.env.ge, not about the server. A self-hosted deployment runs
- * the same code under its own host, and none of these describe it.
+ * Facts about the maintainer's hosted copy at nbg-rates.env.ge. A self-hosted deployment runs the same code under its
+ * own host and serves none of the pages, which answer only on SITE_HOST; only the Lambda entry lists
+ * HOSTED_SERVER_ICONS. The one value every entry shares is SITE_ORIGIN as the project's website in SERVER_IDENTITY
+ * (server.ts), because the page documents the project, not one deployment.
  */
 import type { Icon } from '@modelcontextprotocol/server';
 
