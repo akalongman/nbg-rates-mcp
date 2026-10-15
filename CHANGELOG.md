@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.6.1 - 2026-10-15
+
+Changed: the Georgian landing page writes dates in the standard order (`2026 წლის 7 ოქტომბერს`) and words its ChatGPT workspace step, the unpublished-rate rule, the self-hosting sentence, the privacy promise, the gateway log and the terms more naturally; on both pages the self-hosting sentence says that rate lookups, not questions, go from the computer straight to NBG.
+
 ## 0.6.0 - 2026-10-15
 
 Added: a landing page at https://nbg-rates.env.ge, in English and in Georgian at `/ka`, with setup steps for claude.ai, ChatGPT, Claude Desktop and Claude Code, a short demo conversation, and the privacy and terms sections the Anthropic and OpenAI directories ask for; an icon redrawn without a font dependency, served as a favicon, a touch icon and a 1200 by 630 share card; the hosted server's icon in `serverInfo.icons` and in `server.json`; `/.well-known/openai-apps-challenge` and the `NBG_RATES_OPENAI_CHALLENGE` variable for OpenAI's domain verification; `docs/directory-listings.md` with the listing texts and test cases.
