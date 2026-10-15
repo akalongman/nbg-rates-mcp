@@ -625,9 +625,11 @@ URL answers 503 from the placeholder.
   is the forbidden method that reaches the server.
 - `src/lambda.test.ts`: `handler` with a recorded API Gateway v2 event for
   `POST /mcp` (a plain body and the same body base64 encoded) returns the
-  expected status and JSON; `GET /` returns the text; the result is never
-  base64 encoded; a `TRACK` event, upper or lower case, returns 405. The
-  recorded events are fixtures under `test/fixtures/`.
+  expected status and JSON; `GET /` on `nbg-rates.env.ge` returns the
+  page; a text result is not base64 encoded, and `/favicon.ico` comes back
+  base64 encoded with `isBase64Encoded: true` (0.6.0); a `TRACK` event,
+  upper or lower case, returns 405. The recorded events are fixtures under
+  `test/fixtures/`.
 - `test/e2e/http.test.ts`: starts `dist/bin.js --http --port 0` against
   the fixture NBG server, reads the port from the stderr line, connects
   with `StreamableHTTPClientTransport`, and runs the same scenarios as

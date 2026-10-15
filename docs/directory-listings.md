@@ -76,9 +76,9 @@ or see how a currency moved. It is free and needs no account and no key.
 
 Five read-only tools: the rates in force on a date; converting an amount
 between two currencies; converting a list of amounts, each at the rate of
-its own date, with a total; one currency's history over up to a year,
-with the first, last, lowest and highest rate, the change and the
-average; and the currencies NBG quotes, with the number of units it
+its own date, with a total in one currency; one currency's history over up
+to a year, with the first, last, lowest and highest rate, the change and
+the average; and the currencies NBG quotes, with the number of units it
 quotes each in.
 
 It gets right the details a raw lookup gets wrong. The rates are NBG's,
@@ -87,10 +87,10 @@ NBG sets rates on business days around 17:00 Tbilisi time, valid from the
 next calendar day, so a Sunday, a Monday or the day after a public
 holiday keeps the last rate set, and the answer says which day's rate
 applies. A date NBG has not published yet is an error, never a guess.
-Every rate comes per unit beside NBG's quoted form (1.6452 GEL per 100
-JPY is 0.016452 GEL per yen), and converted amounts are computed exactly
-from NBG's figures and rounded half up to two decimals, the way a ledger
-posts them.
+Every rate is per one unit, and the rates for a date also show NBG's
+quoted form (1.6452 GEL per 100 JPY is 0.016452 GEL per yen); converted
+amounts are computed exactly from NBG's figures and rounded half up to two
+decimals, the way a ledger posts them.
 
 The connector never records the amounts, dates or currencies asked. It
 keeps two logs for 30 days (which tool was called from which client, and
@@ -163,10 +163,10 @@ https://github.com/akalongman/nbg-rates-mcp/issues
 Looking up the official National Bank of Georgia rates of the lari (GEL)
 in force on a date; converting an amount between two currencies at the
 official rate of a date; converting a list of amounts, such as invoices,
-each at the rate of its own date, with a total; following one currency's
-rate over up to a year, with the first, last, lowest and highest rate,
-the change and the average; and listing the currencies NBG quotes, with
-the number of units it quotes each in.
+each at the rate of its own date, with a total in one currency; following
+one currency's rate over up to a year, with the first, last, lowest and
+highest rate, the change and the average; and listing the currencies NBG
+quotes, with the number of units it quotes each in.
 
 **What users need before connecting**
 
@@ -226,9 +226,7 @@ nbg-rates
 
 NBG Rates
 
-### Short description (at most 30 characters)
-
-This text is 23 characters long.
+### Short description (at most 30 characters; this text is 23)
 
 Official NBG lari rates
 
@@ -250,10 +248,10 @@ units?
 
 Five read-only tools answer these: the rates in force on a date;
 converting an amount between two currencies; converting a list of
-amounts, each at the rate of its own date, with a total; one currency's
-history over up to a year, with the first, last, lowest and highest rate,
-the change and the average; and the currencies NBG quotes, with the
-number of units it quotes each in.
+amounts, each at the rate of its own date, with a total in one currency;
+one currency's history over up to a year, with the first, last, lowest and
+highest rate, the change and the average; and the currencies NBG quotes,
+with the number of units it quotes each in.
 
 It gets right the details a raw lookup gets wrong. The rates are NBG's,
 exactly as nbg.gov.ge shows them, and dates are calendar days in Tbilisi.
@@ -261,10 +259,10 @@ NBG sets rates on business days around 17:00 Tbilisi time, valid from the
 next calendar day, so a Sunday, a Monday or the day after a public
 holiday keeps the last rate set, and the answer says which day's rate
 applies. A date NBG has not published yet is an error, never a guess.
-Every rate comes per unit beside NBG's quoted form (1.6452 GEL per 100
-JPY is 0.016452 GEL per yen), and converted amounts are computed exactly
-from NBG's figures and rounded half up to two decimals, the way a ledger
-posts them.
+Every rate is per one unit, and the rates for a date also show NBG's
+quoted form (1.6452 GEL per 100 JPY is 0.016452 GEL per yen); converted
+amounts are computed exactly from NBG's figures and rounded half up to two
+decimals, the way a ledger posts them.
 
 The connector never records the amounts, dates or currencies you ask
 about. It keeps two logs for 30 days: which tool was called from which
