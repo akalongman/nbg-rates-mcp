@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { COPY_EN } from './copy-en.js';
 import { COPY_KA } from './copy-ka.js';
@@ -15,6 +16,11 @@ const PAGES: readonly PageCase[] = [
     { copy: COPY_EN, canonical: 'https://nbg-rates.env.ge/', locale: 'en_US' },
     { copy: COPY_KA, canonical: 'https://nbg-rates.env.ge/ka', locale: 'ka_GE' },
 ];
+
+// The owner's wording for what the logs are used for; the page and the README state it word for word.
+const USAGE_SENTENCE =
+    'The logs are used only to keep the service running, to see which clients use it and to investigate errors or ' +
+    'abuse; they are not sold, shared or used for advertising.';
 
 function blocks(html: string, tag: 'style' | 'script'): string[] {
     return [...html.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'g'))].map((match) => match[1] ?? '');
@@ -115,6 +121,12 @@ describe('the English copy', () => {
         expect(COPY_EN.chat[0].answer).toContain('6,376.13');
         expect(COPY_EN.chat[0].answer).toContain('2.6025');
         expect(COPY_EN.chat[1].answer).toContain('2.9257');
+    });
+
+    it('states what the logs are used for in the words the README uses', () => {
+        const readme = readFileSync(new URL('../../../README.md', import.meta.url), 'utf8');
+        expect(COPY_EN.privacy).toContain(USAGE_SENTENCE);
+        expect(readme).toContain(USAGE_SENTENCE);
     });
 });
 

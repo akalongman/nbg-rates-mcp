@@ -329,7 +329,6 @@ ${tabSelectors('checked', (id) => `.panel-${id}`)} {
     margin-top: 0.75rem;
 }
 .msg.is-waiting {
-    visibility: hidden;
     opacity: 0;
 }
 .msg.is-typing {

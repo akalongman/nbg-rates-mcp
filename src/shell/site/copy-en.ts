@@ -40,7 +40,8 @@ export const COPY_EN: PageCopy = {
         ],
         claudeDesktop: [
             'Add the connector once on claude.ai, as the claude.ai tab shows.',
-            'It then appears in Claude Desktop under the same account, with nothing to install.',
+            'It then appears in Claude Desktop and the Claude mobile apps under the same account, ' +
+                'with nothing to install.',
             `To run it on your computer instead, see “${SELF_HOST_HEADING}” below.`,
         ],
         claudeCode: ['Run this in a terminal:', 'Start a new session and ask about a rate.'],
