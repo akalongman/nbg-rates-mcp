@@ -2,6 +2,8 @@
 
 Ask Claude, or any other MCP client, for the official National Bank of Georgia (NBG) rate of the lari (GEL) on any date, or to convert an amount at that rate. `nbg-rates-mcp` runs on your machine or as a hosted connector you paste into claude.ai or ChatGPT, needs no account and no key, and encodes the rules a raw lookup gets wrong: per-unit values, Tbilisi calendar days, an explicit flag when a day has no rate of its own, and an error, never a stale rate, for a date NBG has not published yet.
 
+**[nbg-rates.env.ge](https://nbg-rates.env.ge)**: what it does and how to add it, in English and Georgian.
+
 This is an independent open-source project, not affiliated with the National Bank of Georgia. NBG's website, [nbg.gov.ge](https://nbg.gov.ge), is the source of truth. The NBG endpoints this server reads are undocumented and may change.
 
 ## What you can ask
@@ -35,9 +37,9 @@ Paste this URL as a custom connector:
 https://nbg-rates.env.ge/mcp
 ```
 
-On claude.ai open Customize, then Connectors, then "+ Add" and "Add custom connector", paste the URL and finish with "Add" (on a Team or Enterprise plan an owner adds it under Organization settings, then Connectors); the connector then also appears in the Claude mobile apps and in Claude Desktop under the same account. In ChatGPT, custom connectors need developer mode and may require a paid plan.
+On claude.ai open Customize, then Connectors, then "+ Add" and "Add custom connector", paste the URL and finish with "Add" (on a Team or Enterprise plan an owner adds it under Organization settings, then Connectors); the connector then also appears in the Claude mobile apps and in Claude Desktop under the same account. In ChatGPT open chatgpt.com/plugins, select the plus button, then "Add custom MCP server", paste the URL under Connection, leave authentication off and finish with "Create as a plugin" (in a workspace, an admin may need to allow custom MCP servers first). The landing page, [nbg-rates.env.ge](https://nbg-rates.env.ge), has step-by-step instructions for each app.
 
-This hosted copy is the latest release of this server, run by the maintainer on AWS. It needs no account and never records the amounts, dates or currencies asked. It keeps two logs for 30 days: which tool was called from which client, and the gateway's access log (time, path, status, and the caller's IP address and user agent; for claude.ai and ChatGPT the caller is Anthropic's or OpenAI's server).
+This hosted copy is the latest release of this server, run by the maintainer on AWS. It needs no account and never records the amounts, dates or currencies asked. It keeps two logs for 30 days: which tool was called from which client, and the gateway's access log (time, path, status, and the caller's IP address and user agent; for claude.ai and ChatGPT the caller is Anthropic's or OpenAI's server). The logs are used only to keep the service running, to see which clients use it and to investigate errors or abuse; they are not sold, shared or used for advertising. The landing page sets no cookies and loads nothing from anyone else.
 
 ### Claude Desktop (macOS, Windows)
 
@@ -358,11 +360,12 @@ Reading the resource fails with the same messages.
 
 ## Environment variables
 
-| Variable               | Effect                                                                                                   |
-| ---------------------- | -------------------------------------------------------------------------------------------------------- |
-| `NBG_RATES_BASE_URL`   | The NBG host to call. Defaults to `https://nbg.gov.ge`; a trailing slash is removed. Useful for testing. |
-| `NBG_RATES_DEBUG`      | Set to `1` to log every upstream request to stderr. Include this log in bug reports.                     |
-| `NBG_RATES_HTTP_HOSTS` | Host names the HTTP endpoint (`--http`, Lambda) answers for, comma separated. Unset or empty: any host.  |
+| Variable                     | Effect                                                                                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NBG_RATES_BASE_URL`         | The NBG host to call. Defaults to `https://nbg.gov.ge`; a trailing slash is removed. Useful for testing.                                          |
+| `NBG_RATES_DEBUG`            | Set to `1` to log every upstream request to stderr. Include this log in bug reports.                                                              |
+| `NBG_RATES_HTTP_HOSTS`       | Host names the HTTP endpoint (`--http`, Lambda) answers for, comma separated. Unset or empty: any host.                                           |
+| `NBG_RATES_OPENAI_CHALLENGE` | The token OpenAI's domain verification expects at `/.well-known/openai-apps-challenge`, served as plain text. Unset or empty: that path is a 404. |
 
 Set them in the client's configuration, for example:
 
