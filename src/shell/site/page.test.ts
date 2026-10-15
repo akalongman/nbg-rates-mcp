@@ -22,6 +22,9 @@ const USAGE_SENTENCE =
     'The logs are used only to keep the service running, to see which clients use it and to investigate errors or ' +
     'abuse; they are not sold, shared or used for advertising.';
 
+// What the first of the two logs holds; the page, the README and the directory listings describe it in these words.
+const FIRST_LOG = 'which tool was called from which client and whether NBG answered';
+
 function blocks(html: string, tag: 'style' | 'script'): string[] {
     return [...html.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'g'))].map((match) => match[1] ?? '');
 }
@@ -128,6 +131,14 @@ describe('the English copy', () => {
         expect(COPY_EN.privacy).toContain(USAGE_SENTENCE);
         expect(readme).toContain(USAGE_SENTENCE);
     });
+
+    it('describes the first log in the same words on the page, in the README and in the directory listings', () => {
+        const readme = readFileSync(new URL('../../../README.md', import.meta.url), 'utf8');
+        const listings = readFileSync(new URL('../../../docs/directory-listings.md', import.meta.url), 'utf8');
+        expect(COPY_EN.privacy.join(' ')).toContain(FIRST_LOG);
+        expect(readme).toContain(FIRST_LOG);
+        expect(listings).toContain(FIRST_LOG);
+    });
 });
 
 describe('the Georgian copy', () => {
@@ -143,5 +154,9 @@ describe('the Georgian copy', () => {
     it('links back to English and names the operator in Latin letters too', () => {
         expect(COPY_KA.otherLanguage).toBe('English');
         expect(COPY_KA.footer.operatedBy).toContain('Avtandil Kikabidze');
+    });
+
+    it('says the first log records whether NBG answered', () => {
+        expect(COPY_KA.privacy.join(' ')).toContain('და უპასუხა თუ არა ეროვნულმა ბანკმა');
     });
 });

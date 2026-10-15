@@ -72,7 +72,7 @@ affiliated with NBG.
 NBG Rates gives Claude the official exchange rates of the Georgian lari
 (GEL), as set by the National Bank of Georgia (NBG). Ask in plain words
 for the lari rate on any date, convert an amount or a list of invoices,
-or see how a currency moved. It is free and needs no account and no key.
+or see how a currency moved. It is free, with no account and no key.
 
 Five read-only tools: the rates in force on a date; converting an amount
 between two currencies; converting a list of amounts, each at the rate of
@@ -92,8 +92,9 @@ quoted form (1.6452 GEL per 100 JPY is 0.016452 GEL per yen); converted
 amounts are computed exactly from NBG's figures and rounded half up to two
 decimals, the way a ledger posts them.
 
-The connector never records the amounts, dates or currencies asked. It
-keeps two logs for 30 days (which tool was called from which client, and
+It never records the amounts, dates or currencies asked. It keeps two
+logs for 30 days
+(which tool was called from which client and whether NBG answered, and
 the gateway's access log), used only to keep the service running, to see
 which clients use it and to investigate errors or abuse; they are not
 sold, shared or used for advertising. Details:
@@ -265,12 +266,13 @@ amounts are computed exactly from NBG's figures and rounded half up to two
 decimals, the way a ledger posts them.
 
 The connector never records the amounts, dates or currencies you ask
-about. It keeps two logs for 30 days: which tool was called from which
-client, and the gateway's access log, with the time, path, status, and
-the caller's IP address and user agent. For ChatGPT, the caller is
-OpenAI's server. The logs are used only to keep the service running, to
-see which clients use it and to investigate errors or abuse; they are not
-sold, shared or used for advertising. Details:
+about. It keeps two logs for 30 days:
+which tool was called from which client and whether NBG answered, and
+the gateway's access log, with the time, path, status, and the caller's
+IP address and user agent. For ChatGPT, the caller is OpenAI's server.
+The logs are used only to keep the service running, to see which
+clients use it and to investigate errors or abuse; they are not sold,
+shared or used for advertising. Details:
 https://nbg-rates.env.ge/#privacy
 
 The connector is free to use and provided as is, without warranty of any

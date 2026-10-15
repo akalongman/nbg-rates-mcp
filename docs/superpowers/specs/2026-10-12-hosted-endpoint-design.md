@@ -119,8 +119,9 @@ environment variable; no tool, prompt, resource or output field changes.
    cached.
 6. **Logging**: one JSON line per MCP request with the method, the tool
    name, the client name and version, the protocol version, the HTTP
-   status, the outcome and the duration. Never the arguments, so no amount,
-   currency or date a user typed reaches a log. Retention 30 days.
+   status, the outcome, any NBG failure and the duration. Never the
+   arguments, so no amount, currency or date a user typed reaches a log.
+   Retention 30 days.
 7. **The npm package ships the HTTP entry points.** `nbg-rates-mcp --http`
    serves the same endpoint on a local port, and `dist/lambda.js` is the
    Lambda handler, so anyone can self-host either way. The stdio default
@@ -151,6 +152,7 @@ export interface RequestLogLine {
     readonly protocolVersion: string | null;
     readonly status: number;
     readonly outcome: 'ok' | 'error';
+    readonly nbgError: 'upstream_unavailable' | 'upstream_shape_changed' | null; // The NBG failure a lookup in this request ended in, else null
     readonly durationMs: number;
 }
 
@@ -578,13 +580,13 @@ URL answers 503 from the placeholder.
   paid plan. It states what the hosted copy is: the latest release, run
   by the maintainer on AWS, no account, never the amounts, dates or
   currencies asked, and two logs kept for 30 days: which tool was
-  called from which client, and the gateway's access log (time, path,
-  status, and the caller's IP address and user agent; for claude.ai and
-  ChatGPT the caller is Anthropic's or OpenAI's server). Under
-  "Node.js", a paragraph "Self-hosting": `nbg-rates-mcp --http --port
-  3000` and the Lambda handler `dist/lambda.handler` behind an API
-  Gateway HTTP API with payload format 2.0 and the `$default` stage,
-  with `NBG_RATES_HTTP_HOSTS`. The environment variable table gains
+  called from which client and whether NBG answered, and the gateway's
+  access log (time, path, status, and the caller's IP address and user
+  agent; for claude.ai and ChatGPT the caller is Anthropic's or OpenAI's
+  server). Under "Node.js", a paragraph "Self-hosting": `nbg-rates-mcp
+  --http --port 3000` and the Lambda handler `dist/lambda.handler` behind
+  an API Gateway HTTP API with payload format 2.0 and the `$default`
+  stage, with `NBG_RATES_HTTP_HOSTS`. The environment variable table gains
   `NBG_RATES_HTTP_HOSTS` (unset or empty: any host).
 - **manifest.json**: unchanged (the bundle is the stdio server).
 - **server.json** lists the hosted endpoint as a remote,
@@ -616,14 +618,16 @@ URL answers 503 from the placeholder.
   `DELETE` on `/mcp` are 405 with `Allow: POST`; a `POST` without
   the SSE `Accept` is 406; a non-JSON body gives a 4xx status and a line
   with null fields and `outcome` `error`; a tool call that fails inside
-  its result is `ok` while a JSON-RPC error carried in an SSE body is
-  `error`; a service that throws is answered by the SDK as a tool error
-  (status 200, `isError` true, `outcome` `ok`), so the 500 path is only
-  for a failure of the handler itself: `createHttpHandler` takes an
-  optional second argument, the MCP fetch function, which production
-  leaves to the SDK and the test replaces with one that rejects. A log
-  callback that throws never changes a response: the failure goes to
-  `console.error` in the same reduced form.
+  its result is `ok` (when NBG is the cause, `nbgError` names the
+  failure, recorded where the rates service settles the lookup; see
+  `2026-10-15-nbg-failure-alarm-design.md`) while a JSON-RPC error
+  carried in an SSE body is `error`; a service that throws is answered by
+  the SDK as a tool error (status 200, `isError` true, `outcome` `ok`), so
+  the 500 path is only for a failure of the handler itself:
+  `createHttpHandler` takes an optional second argument, the MCP fetch
+  function, which production leaves to the SDK and the test replaces with
+  one that rejects. A log callback that throws never changes a response:
+  the failure goes to `console.error` in the same reduced form.
 - `src/shell/http-adapter.test.ts`: round trips of method, URL, headers
   and body, including a binary body and a response with a repeated
   header; `handleIncoming` answers `CONNECT`, `TRACE`, `TRACK` and
