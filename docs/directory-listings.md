@@ -37,8 +37,14 @@ a token is set). In order:
    `curl -s https://nbg-rates.env.ge/.well-known/openai-apps-challenge`
    prints the token and nothing else.
 5. Run OpenAI's domain verification.
-6. Build OpenAI's plugin ZIP and upload it.
-7. Submit to both directories with the texts and files below.
+6. Build OpenAI's plugin ZIP, with the manifest name given below, and
+   upload it.
+7. Run all eight OpenAI test cases below in ChatGPT, and each of the five
+   tools in Claude with the connector added, and correct any row whose
+   outcome differs from what this file says.
+8. Submit to both directories. The sections below give the texts and
+   files for the fields and steps they name; anything else a portal asks
+   for is answered in that portal.
 
 ## Anthropic Connectors Directory
 
@@ -123,7 +129,98 @@ https://github.com/akalongman/nbg-rates-mcp/issues
 Upload `assets/icon.png`, a square 512 by 512 PNG. Anthropic documents no
 format or size for it.
 
+### Other portal steps
+
+The portal asks for more than the fields above: a URL slug in the same
+step, then use cases, the company, data handling, test and launch
+instructions, and compliance acknowledgments.
+
+#### URL slug (permanent once the listing is published)
+
+nbg-rates
+
+#### Company
+
+The publisher is the individual Avtandil Kikabidze, not an organisation,
+as on the page's operator line and in OpenAI's developer verification.
+
+**Name**
+
+Avtandil Kikabidze
+
+**Website**
+
+https://nbg-rates.env.ge
+
+**Primary contact**
+
+https://github.com/akalongman/nbg-rates-mcp/issues
+
+#### Use cases
+
+**Primary use cases**
+
+Looking up the official National Bank of Georgia rates of the lari (GEL)
+in force on a date; converting an amount between two currencies at the
+official rate of a date; converting a list of amounts, such as invoices,
+each at the rate of its own date, with a total; following one currency's
+rate over up to a year, with the first, last, lowest and highest rate,
+the change and the average; and listing the currencies NBG quotes, with
+the number of units it quotes each in.
+
+**What users need before connecting**
+
+Nothing on the connector's side: it is free and needs no account and no
+key. Adding https://nbg-rates.env.ge/mcp as a connector is the whole
+setup.
+
+**Reads or writes data**
+
+Reads only. All five tools are read-only and change nothing.
+
+#### Data handling
+
+**Underlying API**
+
+A third party's API that the publisher does not control: the public
+exchange rate API of the National Bank of Georgia (NBG).
+
+**Personal health data**
+
+No.
+
+**Sponsored content**
+
+No.
+
+#### Test and launch
+
+The portal also asks for a confirmation that every tool was run, which
+step 7 of the maintainer's steps provides.
+
+**Access instructions**
+
+No account, credentials or setup are needed. Add
+https://nbg-rates.env.ge/mcp as a custom connector in Claude with no
+authentication, then ask these five questions, one per tool: What were
+the official NBG rates for USD and EUR on 1 March 2026? Convert 1,200 GBP
+to GEL at today's NBG rate. Convert these invoices to GEL, each at the
+NBG rate of its own date: 500 USD on 2 October 2026 and 300 EUR on 5
+October 2026. How did the US dollar move against the lari in September
+2026? Which currencies does the National Bank of Georgia quote? They
+call nbg_get_rates, nbg_convert, nbg_convert_many, nbg_rate_history and
+nbg_list_currencies, in that order.
+
+#### Compliance
+
+The seven compliance acknowledgments are ticked in the portal; there is
+nothing to paste for them.
+
 ## OpenAI app directory
+
+### Plugin manifest name (stable identifier, keep it once published)
+
+nbg-rates
 
 ### Display name (at most 30 characters)
 
@@ -138,10 +235,12 @@ Official NBG lari rates
 ### Long description (at most 4,000 characters)
 
 NBG Rates brings the official exchange rates of the Georgian lari (GEL),
-as set by the National Bank of Georgia (NBG), into ChatGPT. Ask in plain
-words for the lari rate on any date, convert an amount or a list of
-invoices, or see how a currency moved. It is free and needs no account
-and no key.
+as set by the National Bank of Georgia (NBG), into ChatGPT. It is an
+independent open-source project operated by Avtandil Kikabidze, not
+affiliated with the National Bank of Georgia. Ask in plain words for the
+lari rate on any date, convert an amount or a list of invoices, or see
+how a currency moved. It is made for accountants and open to anyone:
+free, with no account and no key.
 
 For example: What were the USD and EUR rates on 1 March 2026? Convert
 1,200 GBP to GEL at today's rate. Convert these invoices to GEL, each at
@@ -177,10 +276,8 @@ sold, shared or used for advertising. Details:
 https://nbg-rates.env.ge/#privacy
 
 The connector is free to use and provided as is, without warranty of any
-kind. It is an independent open-source project operated by Avtandil
-Kikabidze, not affiliated with the National Bank of Georgia. Anyone who
-needs a rate for an official or legal purpose should check it on
-nbg.gov.ge. Terms: https://nbg-rates.env.ge/#terms
+kind. Anyone who needs a rate for an official or legal purpose should
+check it on nbg.gov.ge. Terms: https://nbg-rates.env.ge/#terms
 
 ### Website URL
 
