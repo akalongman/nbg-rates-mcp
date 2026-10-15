@@ -208,8 +208,10 @@ Behaviour of the returned function, in order:
    for 2025-era clients, status 200 even for an error) is read as its
    `data:` lines, each parsed on its own. A tool that reports a problem
    inside a result (`isError`, the `error` text of a batch item) is an
-   `ok` request: it answered. Nothing else from the body is read, and the
-   line has no field for anything else.
+   `ok` request: it answered. When NBG is the cause, `nbgError` names the
+   failure, recorded where the rates service settles the lookup, not read
+   from the body (see `2026-10-15-nbg-failure-alarm-design.md`). Nothing
+   else from the body is read.
 
 The handler never throws: an exception from the SDK or from the parse
 becomes a 500 `text/plain` `Internal error` with a log line of status 500,
