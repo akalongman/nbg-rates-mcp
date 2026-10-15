@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.6.2 - 2026-10-15
+
+Changed: each hosted request's log line names the NBG failure it met (`nbgError`: `upstream_unavailable` or `upstream_shape_changed`, else null), counted for every tool, for each item of `nbg_convert_many` and for the `nbg://rates/{date}` resource, so an outage can raise an alarm; the privacy section says that the log records whether NBG answered.
+
+Release process: the deploy smoke test asks `GET /` until it names the new version three times in a row, for up to 60 seconds, before its checks, because for a moment after the alias moves the public URL can still reach the previous version.
+
 ## 0.6.1 - 2026-10-15
 
 Changed: the Georgian landing page writes dates in the standard order (`2026 წლის 7 ოქტომბერს`) and words its ChatGPT workspace step, the unpublished-rate rule, the self-hosting sentence, the privacy promise, the gateway log and the terms more naturally; on both pages the self-hosting sentence says that rate lookups, not questions, go from the computer straight to NBG.
