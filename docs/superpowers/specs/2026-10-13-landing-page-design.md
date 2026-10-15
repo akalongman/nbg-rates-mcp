@@ -307,12 +307,12 @@ Sections, top to bottom (the mockup of 2026-10-13 shows them):
 6. Privacy (`id="privacy"`): the README's paragraph, made true for the
    page as well: the connector needs no account and never records the
    amounts, dates or currencies asked; it keeps two logs for 30 days
-   (which tool was called from which client; the gateway's access log
-   with time, path, status, the caller's IP address and user agent, where
-   for claude.ai and ChatGPT the caller is Anthropic's or OpenAI's
-   server); the page sets no cookies, loads nothing from anyone else and
-   is logged like any other request; the operator is named as in
-   section 8.
+   (which tool was called from which client and whether NBG answered;
+   the gateway's access log with time, path, status, the caller's IP
+   address and user agent, where for claude.ai and ChatGPT the caller is
+   Anthropic's or OpenAI's server); the page sets no cookies, loads
+   nothing from anyone else and is logged like any other request; the
+   operator is named as in section 8.
 7. Terms (`id="terms"`): free to use, provided as is without warranty;
    rates are NBG's published rates, and anyone who needs them for an
    official or legal purpose checks them on nbg.gov.ge; the service may
