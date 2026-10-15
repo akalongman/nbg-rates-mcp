@@ -3,8 +3,14 @@
  * the bytes of an ICO, initialize reports the version, the five tools are listed and a conversion returns a two decimal
  * amount. The deploy step that runs it holds the AWS session, so it loads no installed package: it speaks MCP's
  * JSON-RPC over fetch and reads the answer as JSON or as an SSE stream, and it uses only erasable TypeScript syntax,
- * which Node runs as is. Usage: node scripts/smoke-http.ts <url> <version>. Exit 0 on success, 1 with the first failing
- * check on stderr, 2 on a usage error.
+ * which Node runs as is. Usage: node scripts/smoke-http.ts <url> <version> [wait-seconds]. Exit 0 on success, 1 with
+ * the first failing check on stderr, 2 on a usage error.
+ *
+ * For a moment after update-alias returns, the public URL can still reach the version the alias left: in the v0.6.1
+ * deploy the first GET /, half a second later, ran on version 4 and failed the deploy. So GET / is asked once a second
+ * until it names the version on three answers in a row, for up to wait-seconds (default 60), and only then do the
+ * checks run. Three in a row narrows the window in which a later check can still reach the old version; it does not
+ * close it. A GET / that answers other than 200 fails at once.
  *
  * The conversion is the one check that reaches NBG, whose edge fails now and then, so it is tried up to three times,
  * five seconds apart, when its request fails, the endpoint answers 5xx or the tool answers an error; each retry prints
@@ -19,6 +25,10 @@ const PROTOCOL_VERSION = '2025-11-25';
 const CENTS_TOLERANCE = 1e-6;
 const CONVERT_ATTEMPTS = 3;
 const CONVERT_RETRY_SECONDS = 5;
+const LIVE_STREAK = 3;
+const LIVE_POLL_SECONDS = 1;
+const LIVE_WAIT_SECONDS = 60;
+const USAGE = 'usage: node scripts/smoke-http.ts <url> <version> [wait-seconds]';
 
 type JsonObject = Readonly<Record<string, unknown>>;
 
@@ -48,13 +58,55 @@ function isObject(value: unknown): value is JsonObject {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function parseArguments(): { readonly endpoint: URL; readonly version: string } {
-    const [url, version] = process.argv.slice(2);
+function usageError(): never {
+    console.error(USAGE);
+    process.exit(2);
+}
+
+function parseArguments(): { readonly endpoint: URL; readonly version: string; readonly waitSeconds: number } {
+    const [url, version, wait] = process.argv.slice(2);
     if (url === undefined || version === undefined) {
-        console.error('usage: node scripts/smoke-http.ts <url> <version>');
-        process.exit(2);
+        usageError();
     }
-    return { endpoint: new URL(url), version };
+    const waitSeconds = wait === undefined ? LIVE_WAIT_SECONDS : Number(wait);
+    if (wait === '' || !Number.isFinite(waitSeconds) || waitSeconds < 0) {
+        usageError();
+    }
+    return { endpoint: new URL(url), version, waitSeconds };
+}
+
+function sleep(seconds: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+}
+
+/** The version a GET / answer names: the page footer's or the plain text's `nbg-rates-mcp <version>`. */
+function namedVersion(text: string): string {
+    return /nbg-rates-mcp (\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)/.exec(text)?.[1] ?? 'no version';
+}
+
+/** Asks GET / until it names the version on LIVE_STREAK answers in a row; a status other than 200 fails at once. */
+async function waitUntilLive(endpoint: URL, version: string, waitSeconds: number): Promise<void> {
+    const deadline = Date.now() + waitSeconds * 1000;
+    let streak = 0;
+    for (;;) {
+        const root = await fetch(new URL('/', endpoint));
+        const rootText = await root.text();
+        if (root.status !== 200) {
+            fail(`GET / answered ${root.status}: ${rootText.slice(0, 200)}`);
+        }
+        const named = namedVersion(rootText);
+        streak = named === version ? streak + 1 : 0;
+        if (streak === LIVE_STREAK) {
+            return;
+        }
+        if (Date.now() >= deadline) {
+            fail(
+                `GET / did not name nbg-rates-mcp ${version} ${LIVE_STREAK} times in a row within ${waitSeconds} s; ` +
+                    `the last answer named ${named === 'no version' ? named : `nbg-rates-mcp ${named}`}`,
+            );
+        }
+        await sleep(LIVE_POLL_SECONDS);
+    }
 }
 
 /** The JSON-RPC messages in a POST answer: the body itself, or the data of each SSE event; undefined if not JSON. */
@@ -159,7 +211,7 @@ async function convertWithRetries(session: Session, firstId: number): Promise<Js
             `smoke test: nbg_convert attempt ${attempt} of ${CONVERT_ATTEMPTS} failed (${outcome.reason}), ` +
                 `retrying in ${CONVERT_RETRY_SECONDS} s`,
         );
-        await new Promise((resolve) => setTimeout(resolve, CONVERT_RETRY_SECONDS * 1000));
+        await sleep(CONVERT_RETRY_SECONDS);
         // A fresh JSON-RPC id per attempt: an id is never reused within a session.
         outcome = await convert(session, firstId + attempt);
         attempt += 1;
@@ -170,13 +222,9 @@ async function convertWithRetries(session: Session, firstId: number): Promise<Js
     return outcome.result;
 }
 
-const { endpoint, version } = parseArguments();
+const { endpoint, version, waitSeconds } = parseArguments();
 
-const root = await fetch(new URL('/', endpoint));
-const rootText = await root.text();
-if (root.status !== 200 || !rootText.includes(`nbg-rates-mcp ${version}`)) {
-    fail(`GET / answered ${root.status}: ${rootText.slice(0, 200)}`);
-}
+await waitUntilLive(endpoint, version, waitSeconds);
 
 const favicon = await fetch(new URL('/favicon.ico', endpoint));
 // An ICO starts with 00 00 01 00; an icon a Lambda sent as text, not base64, still answers 200 image/x-icon.

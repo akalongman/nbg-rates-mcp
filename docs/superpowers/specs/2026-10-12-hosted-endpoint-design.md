@@ -523,7 +523,7 @@ Rollback by hand is the same `update-alias` with any earlier version;
 `aws lambda list-versions-by-function` shows them with their tag in
 `Description`.
 
-### `scripts/smoke-http.ts <url> <version>`
+### `scripts/smoke-http.ts <url> <version> [wait-seconds]`
 
 Imports nothing from `node_modules`, because the deploy step that runs
 it holds the AWS session, and uses only erasable TypeScript syntax, so
@@ -531,7 +531,16 @@ Node 24 runs it as is (`node scripts/smoke-http.ts <url> <version>`);
 typecheck and lint still cover it. It speaks MCP's JSON-RPC over
 `fetch`, with `Accept: application/json, text/event-stream`, and reads
 each answer as JSON or as an SSE stream. First `GET /` on the URL's
-origin must answer 200 with text that names `<version>`; then
+origin must answer 200 and name `<version>` as `nbg-rates-mcp <version>`.
+For a moment after `update-alias` returns, the public URL can still
+reach the version the alias left (the v0.6.1 deploy's first `GET /`,
+half a second later, ran on the previous version and failed the
+deploy), so `GET /` is asked once a second until it names `<version>`
+on three answers in a row, for up to `wait-seconds` (default 60); a
+`GET /` that answers other than 200 fails at once, and running out of
+time fails naming the version the last answer named. Three in a row
+narrows the window in which a later check can still reach the old
+version; it does not close it. Then
 `initialize` must report `serverInfo.version` equal to `<version>`,
 `notifications/initialized` must answer 202, `tools/list` must return
 exactly the five tool names, and `nbg_convert` of 10 USD to GEL with no
@@ -648,8 +657,11 @@ URL answers 503 from the placeholder.
   on `$LATEST` refused. Every local run sets `AWS_PROFILE` to a
   profile that does not exist, so a stub that fails to shadow the real
   CLI cannot reach AWS.
-- `scripts/smoke-http.ts` runs in the deploy job and by hand; it is not
-  part of `npm test`.
+- `scripts/smoke-http.ts` runs in the deploy job and by hand against a
+  real endpoint, never in `npm test`; `test/scripts/smoke-http.test.ts`
+  drives it against a fake endpoint whose `GET /` names the previous
+  version first (waits, then passes), never the new one (fails in time),
+  or answers 502 (fails at once).
 - Contract tests are unchanged.
 - Gates stay `npm run format:check && npm run lint && npm run typecheck && npm test && npm run test:e2e`,
   then `bash scripts/build-bundle.sh && npx tsx scripts/check-release.ts 0.5.0`.
