@@ -192,6 +192,31 @@ describe('nbg-rates-mcp over Streamable HTTP', () => {
         expect(JSON.stringify(lines)).not.toContain('2026-10-07');
     });
 
+    it("logs an NBG outage on the request's line", async () => {
+        // A date the warm cache has not seen, so the call reaches NBG; the client retries once, after 500 ms.
+        fixture.setResponder((url) =>
+            url.pathname === '/gw/api/ct/monetarypolicy/currencies/en/json' &&
+            url.searchParams.get('date') === '2026-09-30'
+                ? { status: 503, body: 'Service Unavailable', contentType: 'text/plain' }
+                : undefined,
+        );
+        const before = child.stdout.length;
+        try {
+            const result = await client.callTool({
+                name: 'nbg_convert',
+                arguments: { amount: 10, from: 'USD', to: 'GEL', date: '2026-09-30' },
+            });
+            expect(result.isError).toBe(true);
+        } finally {
+            fixture.setResponder(undefined);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const lines = child.stdout.slice(before).map((line) => JSON.parse(line) as Record<string, unknown>);
+        const calls = lines.filter((line) => line['method'] === 'tools/call');
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toMatchObject({ tool: 'nbg_convert', outcome: 'ok', nbgError: 'upstream_unavailable' });
+    });
+
     it('answers GET / with the version and refuses a foreign host', async () => {
         const origin = new URL(child.url).origin;
         const root = await fetch(`${origin}/`);

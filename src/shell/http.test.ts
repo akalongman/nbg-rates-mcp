@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
+import { fixturePath } from '../../test/helpers/fixtures.js';
 import { code, date } from '../../test/helpers/values.js';
-import { err, ok, type RatesSnapshot } from '../core/types.js';
+import { err, ok, type RatesError, type RatesSnapshot, type Result } from '../core/types.js';
+import { createSnapshotCache } from './cache.js';
 import {
     createHttpHandler,
     parseAllowedHosts,
@@ -8,7 +11,8 @@ import {
     type HttpDeps,
     type RequestLogLine,
 } from './http.js';
-import type { RatesService } from './rates-service.js';
+import { createNbgClient } from './nbg-client.js';
+import { createRatesService, type RatesService } from './rates-service.js';
 import { FAVICON_ICO_BASE64 } from './site/assets.generated.js';
 import { HOSTED_SERVER_ICONS } from './site/hosted.js';
 import { PAGE_CONTENT_SECURITY_POLICY } from './site/page.js';
@@ -43,6 +47,18 @@ const CONVERT = {
     method: 'tools/call',
     params: { name: 'nbg_convert', arguments: { amount: 123456.78, from: 'USD', to: 'GEL', date: '2026-10-07' } },
 };
+
+const UNAVAILABLE: RatesError = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
+const SHAPE_CHANGED: RatesError = { kind: 'upstream_shape_changed', detail: 'missing header' };
+
+function toolCall(name: string, args: Record<string, unknown>) {
+    return { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name, arguments: args } };
+}
+
+/** The test service with getSnapshot answering the given result for every date. */
+function snapshotAnswering(result: Result<RatesSnapshot, RatesError>): RatesService {
+    return { ...service, getSnapshot: () => Promise.resolve(result) };
+}
 
 function handlerWith(overrides: Partial<HttpDeps> = {}, mcpFetch?: (request: Request) => Promise<Response>) {
     const lines: RequestLogLine[] = [];
@@ -192,13 +208,29 @@ describe('createHttpHandler', () => {
         expect(response.status).toBe(200);
         const message = await firstMessage(response);
         expect(message).toMatchObject({ id: 2, result: { structuredContent: { resultRounded: 321296.27 } } });
-        expect(lines[0]).toMatchObject({ method: 'tools/call', tool: 'nbg_convert', client: null, outcome: 'ok' });
+        expect(lines[0]).toMatchObject({
+            method: 'tools/call',
+            tool: 'nbg_convert',
+            client: null,
+            outcome: 'ok',
+            nbgError: null,
+        });
         const serialized = JSON.stringify(lines[0]);
         expect(serialized).not.toContain('123456');
         expect(serialized).not.toContain('USD');
         expect(serialized).not.toContain('2026-10-07');
         expect(Object.keys(lines[0] ?? {}).sort()).toEqual(
-            ['client', 'durationMs', 'method', 'outcome', 'protocolVersion', 'status', 'time', 'tool'].sort(),
+            [
+                'client',
+                'durationMs',
+                'method',
+                'nbgError',
+                'outcome',
+                'protocolVersion',
+                'status',
+                'time',
+                'tool',
+            ].sort(),
         );
     });
 
@@ -276,6 +308,7 @@ describe('createHttpHandler', () => {
                 tool: 'nbg_convert',
                 status: 500,
                 outcome: 'error',
+                nbgError: null,
             });
             expect(consoleError).toHaveBeenCalledWith('RangeError http handler failed');
             expect(JSON.stringify(consoleError.mock.calls)).not.toContain('123456');
@@ -298,6 +331,134 @@ describe('createHttpHandler', () => {
         } finally {
             consoleError.mockRestore();
         }
+    });
+});
+
+describe('createHttpHandler nbgError', () => {
+    it.each([
+        ['nbg_convert', { amount: 10, from: 'USD', to: 'GEL', date: '2026-10-07' }],
+        ['nbg_get_rates', { date: '2026-10-07', currencies: ['USD'] }],
+        ['nbg_list_currencies', {}],
+    ])('logs the NBG failure a tool call met (%s)', async (tool, args) => {
+        const { handler, lines } = handlerWith({ service: snapshotAnswering(err(UNAVAILABLE)) });
+        const response = await handler(post(toolCall(tool, args)));
+        expect(await firstMessage(response)).toMatchObject({ result: { isError: true } });
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toMatchObject({ tool, outcome: 'ok', nbgError: 'upstream_unavailable' });
+    });
+
+    it('logs a history that NBG answered in a changed shape', async () => {
+        const { handler, lines } = handlerWith({
+            service: { ...service, getHistory: () => Promise.resolve(err(SHAPE_CHANGED)) },
+        });
+        const response = await handler(
+            post(toolCall('nbg_rate_history', { currency: 'USD', from: '2026-10-01', to: '2026-10-07' })),
+        );
+        expect(await firstMessage(response)).toMatchObject({ result: { isError: true } });
+        expect(lines[0]).toMatchObject({ tool: 'nbg_rate_history', outcome: 'ok', nbgError: 'upstream_shape_changed' });
+    });
+
+    it('logs an outage that nbg_convert_many reports item by item', async () => {
+        const { handler, lines } = handlerWith({ service: snapshotAnswering(err(UNAVAILABLE)) });
+        const items = [
+            { amount: 100, from: 'USD', to: 'GEL', date: '2026-10-06' },
+            { amount: 200, from: 'USD', to: 'GEL', date: '2026-10-07' },
+        ];
+        const response = await handler(post(toolCall('nbg_convert_many', { items })));
+        const message = await firstMessage(response);
+        expect(message).toMatchObject({ result: { structuredContent: { converted: 0, skipped: 2 } } });
+        expect(message).not.toHaveProperty(['result', 'isError'], true);
+        expect(lines[0]).toMatchObject({ tool: 'nbg_convert_many', outcome: 'ok', nbgError: 'upstream_unavailable' });
+    });
+
+    it('logs an NBG failure behind the rates resource', async () => {
+        const { handler, lines } = handlerWith({ service: snapshotAnswering(err(UNAVAILABLE)) });
+        const response = await handler(
+            post({ jsonrpc: '2.0', id: 11, method: 'resources/read', params: { uri: 'nbg://rates/2026-10-07' } }),
+        );
+        expect(await firstMessage(response)).toHaveProperty('error');
+        expect(lines[0]).toMatchObject({
+            method: 'resources/read',
+            tool: null,
+            outcome: 'error',
+            nbgError: 'upstream_unavailable',
+        });
+    });
+
+    it("leaves nbgError null for the user's own mistakes", async () => {
+        const notPublished = handlerWith({
+            service: snapshotAnswering(
+                err({
+                    kind: 'rate_not_published',
+                    date: date('2026-10-09'),
+                    latestEffectiveDate: date('2026-10-07'),
+                    today: date('2026-10-08'),
+                }),
+            ),
+        });
+        const early = await notPublished.handler(
+            post(toolCall('nbg_convert', { amount: 10, from: 'USD', to: 'GEL', date: '2026-10-09' })),
+        );
+        expect(await firstMessage(early)).toMatchObject({ result: { isError: true } });
+
+        const { handler, lines } = handlerWith();
+        const unknown = await handler(
+            post(toolCall('nbg_convert', { amount: 10, from: 'XYZ', to: 'GEL', date: '2026-10-07' })),
+        );
+        expect(JSON.stringify(await firstMessage(unknown))).toContain('NBG did not quote XYZ');
+        const malformed = await handler(post(toolCall('nbg_convert', { amount: 1, from: 'dollar', to: 'GEL' })));
+        expect(await firstMessage(malformed)).toMatchObject({ result: { isError: true } });
+
+        expect([...notPublished.lines, ...lines].map((line) => line.nbgError)).toEqual([null, null, null]);
+    });
+
+    it('marks only the request whose lookup failed when two run at once', async () => {
+        let releaseFailing: () => void = () => undefined;
+        const otherStarted = new Promise<void>((resolve) => {
+            releaseFailing = resolve;
+        });
+        const gated: RatesService = {
+            ...service,
+            async getSnapshot({ date: requested }) {
+                if (requested === date('2026-10-06')) {
+                    // Fails only once the other request is inside its own lookup, so the two overlap.
+                    await otherStarted;
+                    return err(UNAVAILABLE);
+                }
+                releaseFailing();
+                return ok(SNAPSHOT);
+            },
+        };
+        const { handler, lines } = handlerWith({ service: gated });
+        await Promise.all([
+            handler(post(toolCall('nbg_convert', { amount: 10, from: 'USD', to: 'GEL', date: '2026-10-06' }))),
+            handler(post(toolCall('nbg_get_rates', { date: '2026-10-07', currencies: ['USD'] }))),
+        ]);
+        expect(lines).toHaveLength(2);
+        expect(lines.find((line) => line.tool === 'nbg_convert')).toMatchObject({ nbgError: 'upstream_unavailable' });
+        expect(lines.find((line) => line.tool === 'nbg_get_rates')).toMatchObject({ nbgError: null });
+    });
+
+    it('does not count a lookup whose retry succeeded', async () => {
+        const body = readFileSync(fixturePath('en-2026-10-07'), 'utf8');
+        const fetchImpl = vi.fn<typeof fetch>();
+        fetchImpl.mockRejectedValueOnce(new TypeError('fetch failed'));
+        fetchImpl.mockImplementation(() =>
+            Promise.resolve(new Response(body, { status: 200, headers: { 'content-type': 'application/json' } })),
+        );
+        const now = () => new Date('2026-10-08T06:00:00Z');
+        const realService = createRatesService({
+            client: createNbgClient({ baseUrl: 'https://nbg.example', userAgent: 'test', retryDelayMs: 0, fetchImpl }),
+            cache: createSnapshotCache(),
+            now,
+        });
+        const { handler, lines } = handlerWith({ service: realService, now });
+        const response = await handler(
+            post(toolCall('nbg_convert', { amount: 10, from: 'USD', to: 'GEL', date: '2026-10-07' })),
+        );
+        expect(await firstMessage(response)).toMatchObject({ result: { structuredContent: { resultRounded: 26.03 } } });
+        expect(lines[0]).toMatchObject({ tool: 'nbg_convert', outcome: 'ok', nbgError: null });
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
     });
 });
 
