@@ -31,6 +31,8 @@ const service: RatesService = {
 };
 
 const ACCEPT = 'application/json, text/event-stream';
+/** What a browser sends when someone types the address. */
+const BROWSER_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const INITIALIZE = {
     jsonrpc: '2.0',
     id: 1,
@@ -90,8 +92,11 @@ function post(body: unknown, options: { host?: string; path?: string; accept?: s
     });
 }
 
-function get(path: string, options: { host?: string; method?: string } = {}): Request {
-    return new Request(`https://${options.host ?? 'nbg-rates.env.ge'}${path}`, { method: options.method ?? 'GET' });
+function get(path: string, options: { host?: string; method?: string; accept?: string } = {}): Request {
+    return new Request(`https://${options.host ?? 'nbg-rates.env.ge'}${path}`, {
+        method: options.method ?? 'GET',
+        headers: options.accept === undefined ? {} : { accept: options.accept },
+    });
 }
 
 /** The first JSON-RPC message of a JSON or SSE response body. */
@@ -548,5 +553,49 @@ describe('site paths', () => {
     it('checks the host before any site path', async () => {
         const { handler } = handlerWith();
         expect((await handler(get('/favicon.ico', { host: 'evil.example' }))).status).toBe(421);
+    });
+
+    it.each(['/mcp', '/mcp/', '/mcp?ref=card'])('sends a browser that opens %s to the landing page', async (path) => {
+        const { handler, lines } = handlerWith();
+        const response = await handler(get(path, { accept: BROWSER_ACCEPT }));
+        expect(response.status).toBe(302);
+        expect(response.headers.get('location')).toBe('/');
+        expect(response.headers.get('cache-control')).toBe('no-store');
+        expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+        expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+        expect(await response.text()).toBe('');
+        expect(lines).toEqual([]);
+    });
+
+    it('answers a browser HEAD /mcp with the same redirect and no body', async () => {
+        const { handler } = handlerWith();
+        const response = await handler(get('/mcp', { method: 'HEAD', accept: BROWSER_ACCEPT }));
+        expect(response.status).toBe(302);
+        expect(response.headers.get('location')).toBe('/');
+        expect(await response.text()).toBe('');
+    });
+
+    it('reads the Accept header without regard to case', async () => {
+        const { handler } = handlerWith();
+        expect((await handler(get('/mcp', { accept: 'TEXT/HTML' }))).status).toBe(302);
+    });
+
+    it.each(['text/event-stream', 'text/html, text/event-stream', 'application/json, text/event-stream'])(
+        'keeps MCP clients on 405 at /mcp',
+        async (accept) => {
+            const { handler, lines } = handlerWith();
+            const response = await handler(get('/mcp', { accept }));
+            expect(response.status).toBe(405);
+            expect(response.headers.get('allow')).toBe('POST');
+            expect(lines).toHaveLength(1);
+            expect(lines[0]).toMatchObject({ method: null, status: 405 });
+        },
+    );
+
+    it('keeps the 405 on any other host', async () => {
+        const { handler } = handlerWith({ allowedHosts: [] });
+        const response = await handler(get('/mcp', { host: 'example.test', accept: BROWSER_ACCEPT }));
+        expect(response.status).toBe(405);
+        expect(response.headers.get('allow')).toBe('POST');
     });
 });

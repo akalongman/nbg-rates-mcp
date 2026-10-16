@@ -7,11 +7,11 @@ import { createServer } from './server.js';
 import { createSiteResponder } from './site/routes.js';
 
 /**
- * The HTTP face of the server: Host validation, the site paths (the landing page, the icons, robots.txt and OpenAI's
- * domain challenge, decided in site/routes.ts), path routing and one log line per MCP request around the SDK's
- * stateless Streamable HTTP handler. The line carries the NBG failure the request met (nbg-failure.ts), traced
- * through that request's own async work so concurrent requests never mark each other. Host-neutral: http-node.ts
- * serves it on a port, lambda.ts behind API Gateway.
+ * The HTTP face of the server: Host validation, the site paths (the landing page, the icons, robots.txt, OpenAI's
+ * domain challenge and the redirect of a browser at /mcp, decided in site/routes.ts), path routing and one log line
+ * per MCP request around the SDK's stateless Streamable HTTP handler. The line carries the NBG failure the request met
+ * (nbg-failure.ts), traced through that request's own async work so concurrent requests never mark each other.
+ * Host-neutral: http-node.ts serves it on a port, lambda.ts behind API Gateway.
  */
 
 export interface RequestLogLine {
@@ -172,7 +172,7 @@ export function createHttpHandler(
         if (deps.allowedHosts.length > 0 && !deps.allowedHosts.includes(url.hostname.toLowerCase())) {
             return text(421, `This server answers only for ${deps.allowedHosts.join(', ')}.`);
         }
-        const siteAnswer = site(request.method, url);
+        const siteAnswer = site(request.method, url, request.headers.get('accept'));
         if (siteAnswer !== undefined) {
             return siteAnswer;
         }

@@ -7,6 +7,8 @@ import { FAVICON_ICO_BASE64 } from './shell/site/assets.generated.js';
 import { HOSTED_SERVER_ICONS } from './shell/site/hosted.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', 'test', 'fixtures');
+/** What a browser sends when someone types the address. */
+const BROWSER_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
 function event(name: string): ApiGatewayV2Event {
     return JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), 'utf8')) as ApiGatewayV2Event;
@@ -47,6 +49,18 @@ describe('lambda handler', () => {
         expect(result.statusCode).toBe(200);
         expect(result.headers['content-type']).toBe('text/html; charset=utf-8');
         expect(result.body).toContain('<html lang="en">');
+    });
+
+    it('redirects a browser at /mcp through API Gateway', async () => {
+        const browser = {
+            ...event('apigw-get-root'),
+            rawPath: '/mcp',
+            headers: { host: 'nbg-rates.env.ge', accept: BROWSER_ACCEPT },
+        };
+        const result = await handler(browser);
+        expect(result.statusCode).toBe(302);
+        expect(result.headers['location']).toBe('/');
+        expect(result.body).toBe('');
     });
 
     it('returns the favicon base64 encoded', async () => {
