@@ -207,7 +207,7 @@ files, `robots.txt` and the challenge route answer on every host. Then:
 | `/og.png` | `GET`, `HEAD` | 200 `image/png`, 1200 by 630 share card |
 | `/robots.txt` | `GET`, `HEAD` | 200 `text/plain`, allows everything except `/mcp` |
 | `/.well-known/openai-apps-challenge` | `GET`, `HEAD` | 200 `text/plain; charset=utf-8`, the token and nothing else, when `NBG_RATES_OPENAI_CHALLENGE` is set and not empty; otherwise the usual 404 |
-| `/mcp`, `/mcp/` | as today | unchanged |
+| `/mcp`, `/mcp/` | as today | unchanged, except a browser visit on the hosted host (`GET` or `HEAD` whose `Accept` has `text/html` and not `text/event-stream`), which is 302 to `/` since 0.6.3 (`2026-10-16-browser-redirect-and-share-text-design.md`) |
 | anything else | any | 404 as today |
 
 Another method on a page or asset path answers 405 with

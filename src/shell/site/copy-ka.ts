@@ -1,6 +1,6 @@
 /**
- * The Georgian page's text, rendered from COPY_EN. It is a draft that awaits the maintainer's review before the
- * release is tagged. Product names and the apps' interface labels stay in Latin letters as the apps show them,
+ * The Georgian page's text, rendered from COPY_EN. The maintainer reviewed and confirmed it on 2026-10-15 and
+ * 2026-10-16. Product names and the apps' interface labels stay in Latin letters as the apps show them,
  * and numbers are written as Intl.NumberFormat('ka-GE') writes them.
  */
 import type { PageCopy } from './copy.js';

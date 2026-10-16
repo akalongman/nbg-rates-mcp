@@ -187,7 +187,11 @@ Behaviour of the returned function, in order:
    `() => createServer({ service, now, version })`. The SDK's own
    behaviour applies to method, `Accept` and `Content-Type` handling: a
    `GET /mcp` is 405 (the handler adds the `Allow: POST` header the
-   stateless SDK leaves out of it), a body that is not JSON-RPC is 400,
+   stateless SDK leaves out of it), except a browser visit on the hosted
+   host, which the site routes answer before this step with a 302 to the
+   landing page since 0.6.3
+   (`2026-10-16-browser-redirect-and-share-text-design.md`); a body that
+   is not JSON-RPC is 400,
    and a `POST` whose `Accept` does not list both `application/json` and
    `text/event-stream` is 406, so every test request carries that header.
 5. For every request that reaches step 4, one `RequestLogLine` is written
@@ -616,8 +620,9 @@ URL answers 503 from the placeholder.
   `nbg_convert` writes `tool` `nbg_convert` and nothing of the arguments
   (the serialised line does not contain the amount or the currency); a
   wrong `Host` is 421 with no log line; an empty `allowedHosts` skips the
-  check; `/other` is 404 and `/mcp/` is served as `/mcp`; `GET` and
-  `DELETE` on `/mcp` are 405 with `Allow: POST`; a `POST` without
+  check; `/other` is 404 and `/mcp/` is served as `/mcp`; `GET` (without
+  a browser's `Accept`, see the 2026-10-16 design) and `DELETE` on `/mcp`
+  are 405 with `Allow: POST`; a `POST` without
   the SSE `Accept` is 406; a non-JSON body gives a 4xx status and a line
   with null fields and `outcome` `error`; a tool call that fails inside
   its result is `ok` (when NBG is the cause, `nbgError` names the
