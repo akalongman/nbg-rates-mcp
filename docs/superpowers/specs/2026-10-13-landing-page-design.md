@@ -244,11 +244,13 @@ icon: navy `#1F3A5F` on white, with light blue-grey surfaces. Light
 theme only is acceptable.
 
 Every page carries, in its HTML: `<html lang="en">` or `lang="ka"`, a
-title and a meta description in its language, `<link rel="alternate"
-hreflang>` entries for both languages and `x-default` (English), a
-canonical URL, the favicon and touch icon links, and the Open Graph and
-Twitter card tags pointing at `https://nbg-rates.env.ge/og.png` (absolute
-URLs, since crawlers fetch them).
+title and a meta description in its language, each saying near its start
+that the project is independent
+(`2026-10-16-browser-redirect-and-share-text-design.md`), `<link
+rel="alternate" hreflang>` entries for both languages and `x-default`
+(English), a canonical URL, the favicon and touch icon links, and the Open
+Graph and Twitter card tags pointing at `https://nbg-rates.env.ge/og.png`
+(absolute URLs, since crawlers fetch them).
 
 Sections, top to bottom (the mockup of 2026-10-13 shows them):
 

@@ -5,10 +5,10 @@ const SELF_HOST_HEADING = 'Prefer to run it yourself?';
 
 export const COPY_EN: PageCopy = {
     language: 'en',
-    title: 'NBG Rates: official lari exchange rates in Claude and ChatGPT',
+    title: 'NBG Rates (independent): official lari exchange rates in Claude and ChatGPT',
     description:
-        'Official National Bank of Georgia (NBG) lari exchange rates in Claude and ChatGPT: the rate on any date ' +
-        'and exact conversions, free, no account.',
+        'Official National Bank of Georgia (NBG) lari rates in Claude and ChatGPT, from an independent project not ' +
+        'affiliated with the bank: any date, exact conversions, free, no account.',
     ogImageAlt:
         'The NBG Rates icon, a white lari sign on navy, beside the headline “Official NBG exchange rates, inside ' +
         `Claude and ChatGPT” and the address ${SITE_HOST}/mcp.`,

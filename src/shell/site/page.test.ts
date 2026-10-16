@@ -119,6 +119,24 @@ describe.each(PAGES)('the $copy.language page', ({ copy, canonical, locale }) =>
     });
 });
 
+describe('the share text', () => {
+    // Search results and link previews cut the title and the description short, so the words that say the project
+    // is independent must come before the cut: within the first 30 characters of the title and the first 140 of
+    // the description.
+    function endOf(text: string, phrase: string): number {
+        const start = text.indexOf(phrase);
+        expect(start).not.toBe(-1);
+        return start + phrase.length;
+    }
+
+    it('names the project independent near the start of each title and description', () => {
+        expect(endOf(COPY_EN.title, 'independent')).toBeLessThanOrEqual(30);
+        expect(endOf(COPY_KA.title, 'დამოუკიდებელი')).toBeLessThanOrEqual(30);
+        expect(endOf(COPY_EN.description, 'not affiliated with the bank')).toBeLessThanOrEqual(140);
+        expect(endOf(COPY_KA.description, 'არ არის დაკავშირებული')).toBeLessThanOrEqual(140);
+    });
+});
+
 describe('the English copy', () => {
     it('quotes the demo figures', () => {
         expect(COPY_EN.chat[0].answer).toContain('6,376.13');
