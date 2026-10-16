@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.6.3 - 2026-10-16
+
+Changed: the landing page's title and share description say, near their start and in English and Georgian, that NBG Rates is an independent project not affiliated with the National Bank of Georgia, so link previews say it too; a browser that opens https://nbg-rates.env.ge/mcp is sent to the landing page instead of an error, while MCP clients get the same answers as before.
+
 ## 0.6.2 - 2026-10-15
 
 Changed: each hosted request's log line names the NBG failure it met (`nbgError`: `upstream_unavailable` or `upstream_shape_changed`, else null), counted for every tool, for each item of `nbg_convert_many` and for the `nbg://rates/{date}` resource, so an outage can raise an alarm; the privacy section says that the log records whether NBG answered.
