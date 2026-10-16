@@ -254,7 +254,18 @@ export async function handleIncoming(
 
 `fromWebResponse` reads the whole body: the stateless handler answers
 with a single JSON body or a short SSE stream that ends with the result,
-so buffering is correct and is what API Gateway needs anyway. Repeated
+so buffering is correct and is what API Gateway needs anyway. The one
+2026-07-28 method whose stream is long-lived by design,
+`subscriptions/listen`, stays short because the server declares
+`listChanged: false` for tools, prompts and resources (`createServer` in
+`src/shell/server.ts`): the SDK then acknowledges a listen with no
+notification types and ends the stream with its result, and Claude Code
+opens none. Until 0.6.4 the SDK's default `listChanged: true` let a
+listen stream stay open. The buffered read never finished, and on Lambda,
+where nothing else kept the event loop alive, Node exited with the
+request pending (`Runtime.ExitError`, which API Gateway answered with
+500); `--http` held the request forever. A list that can change during a
+connection needs a transport that streams, which neither entry has. Repeated
 response headers (`set-cookie` is the only one the platform splits, and
 this server sets none) are joined with `, `.
 
