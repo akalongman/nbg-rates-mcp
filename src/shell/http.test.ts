@@ -50,6 +50,22 @@ const CONVERT = {
     params: { name: 'nbg_convert', arguments: { amount: 123456.78, from: 'USD', to: 'GEL', date: '2026-10-07' } },
 };
 
+/** A subscriptions/listen as the SDK client sends it after server/discover (Claude Code opens one too). */
+const LISTEN = {
+    jsonrpc: '2.0',
+    id: 'listen:0',
+    method: 'subscriptions/listen',
+    params: {
+        _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+            'io.modelcontextprotocol/clientInfo': { name: 'test-client', version: '1.2.3' },
+            'io.modelcontextprotocol/clientCapabilities': {},
+        },
+        notifications: { toolsListChanged: true, promptsListChanged: true, resourcesListChanged: true },
+    },
+};
+const LISTEN_HEADERS = { 'mcp-protocol-version': '2026-07-28', 'mcp-method': 'subscriptions/listen' };
+
 const UNAVAILABLE: RatesError = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
 const SHAPE_CHANGED: RatesError = { kind: 'upstream_shape_changed', detail: 'missing header' };
 
@@ -80,8 +96,11 @@ function handlerWith(overrides: Partial<HttpDeps> = {}, mcpFetch?: (request: Req
     return { handler, lines };
 }
 
-function post(body: unknown, options: { host?: string; path?: string; accept?: string | null } = {}): Request {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
+function post(
+    body: unknown,
+    options: { host?: string; path?: string; accept?: string | null; headers?: Record<string, string> } = {},
+): Request {
+    const headers: Record<string, string> = { 'content-type': 'application/json', ...options.headers };
     if (options.accept !== null) {
         headers['accept'] = options.accept ?? ACCEPT;
     }
@@ -97,6 +116,27 @@ function get(path: string, options: { host?: string; method?: string; accept?: s
         method: options.method ?? 'GET',
         headers: options.accept === undefined ? {} : { accept: options.accept },
     });
+}
+
+/** The response, rejected when the handler has not answered within a second. */
+async function answeredWithinASecond(pending: Promise<Response>): Promise<Response> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('the handler held the request open for over a second')), 1000);
+    });
+    try {
+        return await Promise.race([pending, late]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/** Every JSON-RPC message on the data: lines of an SSE response body, in order. */
+async function allMessages(response: Response): Promise<Record<string, unknown>[]> {
+    return (await response.text())
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => JSON.parse(line.replace(/^data:\s*/, '')) as Record<string, unknown>);
 }
 
 /** The first JSON-RPC message of a JSON or SSE response body. */
@@ -281,6 +321,20 @@ describe('createHttpHandler', () => {
         expect(response.headers.get('allow')).toBe('POST');
         expect(await firstMessage(response)).toMatchObject({ error: { message: 'Method not allowed.' } });
         expect(lines[0]).toMatchObject({ status: 405, outcome: 'error' });
+    });
+
+    // The handler buffers every body, so a listen stream left open is never answered: on Lambda the process exits
+    // with the request pending (Runtime.ExitError, a 500), and the local server holds the request forever.
+    it('ends a subscriptions/listen stream at once, since no list ever changes', async () => {
+        const { handler, lines } = handlerWith();
+        const response = await answeredWithinASecond(handler(post(LISTEN, { headers: LISTEN_HEADERS })));
+        expect(response.status).toBe(200);
+        const [acknowledged, closed, ...rest] = await allMessages(response);
+        expect(acknowledged).toMatchObject({ method: 'notifications/subscriptions/acknowledged' });
+        expect(acknowledged).toHaveProperty('params.notifications', {});
+        expect(closed).toMatchObject({ id: 'listen:0', result: { resultType: 'complete' } });
+        expect(rest).toEqual([]);
+        expect(lines[0]).toMatchObject({ method: 'subscriptions/listen', status: 200, outcome: 'ok' });
     });
 
     it('logs null fields for a body that is not JSON', async () => {

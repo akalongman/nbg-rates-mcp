@@ -319,7 +319,16 @@ export function createServer(deps: ServerDeps): McpServer {
             ...SERVER_IDENTITY,
             ...(icons.length === 0 ? {} : { icons: [...icons] }),
         },
-        { instructions: SERVER_INSTRUCTIONS },
+        {
+            instructions: SERVER_INSTRUCTIONS,
+            // The lists are fixed for a version, so no change notification ever comes. The SDK declares listChanged
+            // true unless told otherwise, and a 2026-07-28 client told so opens a subscriptions/listen stream.
+            capabilities: {
+                tools: { listChanged: false },
+                prompts: { listChanged: false },
+                resources: { listChanged: false },
+            },
+        },
     );
 
     server.registerTool(

@@ -229,6 +229,18 @@ describe('createServer', () => {
         await client.close();
     });
 
+    // The lists are fixed for a version. A client told they can change opens a subscriptions/listen stream (Claude
+    // Code does), and a buffered transport cannot hold one open.
+    it('declares that its tools, prompts and resources never change while connected', async () => {
+        const client = await connectedClient();
+        expect(client.getServerCapabilities()).toMatchObject({
+            tools: { listChanged: false },
+            prompts: { listChanged: false },
+            resources: { listChanged: false },
+        });
+        await client.close();
+    });
+
     it('sends the hosted icon only when given it, the same one server.json lists', async () => {
         const registry = z
             .object({ icons: z.array(z.object({ src: z.string(), mimeType: z.string(), sizes: z.array(z.string()) })) })
