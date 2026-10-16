@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.6.4 - 2026-10-16
+
+Fixed: the server declares that its tools, prompts and resources do not change during a connection (`listChanged: false`). It declared that they could, so a client on the 2026-07-28 protocol (Claude Code 2.1.300 and later) opened a `subscriptions/listen` stream that never ended: on the hosted endpoint that request stopped the Lambda process and API Gateway answered it and each retry with 500, and `--http` held it open. A listen is now acknowledged with no notification types and closed at once, and Claude Code no longer opens one.
+
 ## 0.6.3 - 2026-10-16
 
 Changed: the landing page's title and share description say, near their start and in English and Georgian, that NBG Rates is an independent project not affiliated with the National Bank of Georgia, so link previews say it too; a browser that opens https://nbg-rates.env.ge/mcp is sent to the landing page instead of an error, while MCP clients get the same answers as before.
