@@ -1018,6 +1018,22 @@ describe("runArchiveFill: the archive rows' fill", () => {
         expect(failed.fill).toBeUndefined();
     });
 
+    it('fails a year whose tables quote AZN alone inside its filter gap as empty_export, with no CSV request', async () => {
+        // Every sample of 2007 answers this table; with AZN left out, a CSV request would name no currency.
+        const aznAlone = publication(syntheticTable('2007-01-01', { AZN: 1.9876 }));
+        const harness = await beforeFill([aznAlone], { rowsStart: date('2008-01-01') });
+        const mark = harness.mark();
+        expect(await harness.run('2026-10-08T10:00')).toMatchObject({
+            syncResult: 'failed',
+            syncDetail: 'empty_export',
+            checked: true,
+        });
+        expect(harness.since(mark).requests.filter((request) => request.startsWith('range:'))).toEqual([CHECK_CSV]);
+        expect(harness.since(mark).requests.at(-1)).toBe('day:en:2007-12-31');
+        expect(harness.since(mark).writes.map((write) => write.operation)).not.toContain('archive');
+        expect((await harness.state()).rowsStart).toBe('2008-01-01');
+    });
+
     it("moves the rows start over 2026-01-01 to 2026-01-08 with no CSV when a span starts at the year's first publication", async () => {
         const harness = await beforeFill(
             [

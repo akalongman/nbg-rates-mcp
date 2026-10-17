@@ -81,7 +81,11 @@ const mirrorStateSchema = z.object({
         nextYear: z.int().exactOptional(),
     }),
     fill: z
-        .object({ rangeEnd: calendarDate, sampledThrough: calendarDate, codes: z.array(currencyCode) })
+        .object({
+            rangeEnd: calendarDate,
+            sampledThrough: calendarDate,
+            codes: z.array(currencyCode).min(1, 'no currency code'), // a taken sample adds its table's codes
+        })
         .refine((fill) => fill.sampledThrough <= fill.rangeEnd, {
             message: 'after the range end',
             path: ['sampledThrough'],

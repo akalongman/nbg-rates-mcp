@@ -55,6 +55,11 @@ interface SnapshotRead {
     readonly read: MirrorRead<RatesSnapshot>;
     /** For a past date whose table is not stored in the language asked: the rows of the publication in force. */
     readonly pastRows: StoredRows | undefined;
+    /**
+     * For a date left uncovered by an unresolved date: the observation of the rows in force, the cache bound for the
+     * live ask, so the instance never steps back to a value older than what the mirror holds for that publication.
+     */
+    readonly rowsObservedAt: Date | undefined;
 }
 
 /** A snapshot call's own arguments, as the mirror passes them on. */
@@ -133,7 +138,8 @@ export function createMirroredRatesService(deps: MirroredServiceDeps): RatesServ
     /**
      * State first, then the rows in force and the table, all under one bound (plan decision 3). A date in `unresolved`
      * from the rows' publication to the date asked leaves the date uncovered before the table read, with no rows to
-     * keep a past table against: the sources disagree there, so the mirror may not hold what NBG answers now.
+     * keep a past table against: the sources disagree there, so the mirror may not hold what NBG answers now. The
+     * rows' observation still bounds the live ask's cache.
      */
     async function readSnapshot(
         date: CalendarDate,
@@ -142,7 +148,7 @@ export function createMirroredRatesService(deps: MirroredServiceDeps): RatesServ
         today: CalendarDate,
         now: Date,
     ): Promise<SnapshotRead> {
-        const nothing: SnapshotRead = { read: NOT_COVERED, pastRows: undefined };
+        const nothing: SnapshotRead = { read: NOT_COVERED, pastRows: undefined, rowsObservedAt: undefined };
         const signal = AbortSignal.timeout(readTimeoutMs);
         const state = await deps.mirror.readState(signal);
         if (!state.ok) {
@@ -153,15 +159,18 @@ export function createMirroredRatesService(deps: MirroredServiceDeps): RatesServ
             return nothing;
         }
         const rows = await deps.mirror.readRowsInForce(date, signal);
-        if (!rows.ok || rows.value === undefined || hasUnresolvedBetween(state.value, rows.value.validFrom, date)) {
+        if (!rows.ok || rows.value === undefined) {
             return nothing;
+        }
+        if (hasUnresolvedBetween(state.value, rows.value.validFrom, date)) {
+            return { ...nothing, rowsObservedAt: new Date(rows.value.observedAt) };
         }
         const table = await deps.mirror.readTable(rows.value.validFrom, language, signal);
         if (!table.ok) {
             return nothing;
         }
         if (table.value === undefined) {
-            return { read: NOT_COVERED, pastRows: past ? rows.value : undefined };
+            return { ...nothing, pastRows: past ? rows.value : undefined };
         }
         const snapshot = snapshotFromDay(table.value.day, date, today);
         const { observedAt } = table.value;
@@ -173,6 +182,7 @@ export function createMirroredRatesService(deps: MirroredServiceDeps): RatesServ
                 observedAt: observedAt === undefined ? undefined : new Date(observedAt),
             },
             pastRows: undefined,
+            rowsObservedAt: undefined,
         };
     }
 
@@ -250,14 +260,19 @@ export function createMirroredRatesService(deps: MirroredServiceDeps): RatesServ
                     return reachable;
                 }
             }
-            const { read, pastRows } = await readSnapshot(date, language, codes, today, now);
+            const { read, pastRows, rowsObservedAt } = await readSnapshot(date, language, codes, today, now);
             const asked: SnapshotAsk = { date, language, ...(codes === undefined ? {} : { codes }) };
+            /** settle passes a covered read's observation; an uncovered read leaves the rows' observation, if any. */
+            function bounded(
+                ignoreCachedBefore: Date | undefined,
+            ): SnapshotAsk & { readonly ignoreCachedBefore?: Date } {
+                return { ...asked, ...cacheBound(ignoreCachedBefore ?? rowsObservedAt) };
+            }
             return settle(read, withoutNbg, {
-                short: (ignoreCachedBefore) =>
-                    deps.shortLive.getSnapshot({ ...asked, ...cacheBound(ignoreCachedBefore) }),
+                short: (ignoreCachedBefore) => deps.shortLive.getSnapshot(bounded(ignoreCachedBefore)),
                 full:
                     pastRows === undefined
-                        ? (ignoreCachedBefore) => deps.live.getSnapshot({ ...asked, ...cacheBound(ignoreCachedBefore) })
+                        ? (ignoreCachedBefore) => deps.live.getSnapshot(bounded(ignoreCachedBefore))
                         : () => liveKeepingPastTable(asked, pastRows),
             });
         },

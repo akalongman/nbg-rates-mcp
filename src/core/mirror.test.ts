@@ -364,6 +364,14 @@ describe('parseMirrorState', () => {
         });
     });
 
+    it("rejects a fill's progress that names no currency code", () => {
+        const fill = { rangeEnd: '2025-12-31', sampledThrough: '2025-04-01', codes: [] };
+        expect(parseMirrorState({ ...EMPTY_MIRROR_STATE, fill })).toEqual({
+            ok: false,
+            error: 'fill.codes: no currency code',
+        });
+    });
+
     it("rejects a fill's code that is not an uppercase three-letter currency code", () => {
         for (const code of ['usd', 'EURO', '']) {
             const fill = { rangeEnd: '2025-12-31', sampledThrough: '2025-04-01', codes: ['EUR', code] };

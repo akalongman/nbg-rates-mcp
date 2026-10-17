@@ -404,8 +404,9 @@ async function moveRowsStart(
  * after `stored` (the claimed state's progress) when it is this range's, with its codes; a sample or the CSV that
  * meets the deadline or fails records the samples this run took (stopFill). A range whose last day's table is valid
  * from before its start holds no publication: the rows' start moves over it with no CSV, unless the samples came
- * complete from `stored`, which only a range holding a publication leaves. An empty export fails as empty_export. A
- * failure or the deadline anywhere before the state write leaves the rows' start as it was.
+ * complete from `stored`, which only a range holding a publication leaves. An empty export fails as empty_export, and
+ * so, with no request, does a CSV that would name no currency (AZN alone, inside its filter gap). A failure or the
+ * deadline anywhere before the state write leaves the rows' start as it was.
  */
 async function fillYear(
     context: SyncContext,
@@ -434,6 +435,9 @@ async function fillYear(
     }
     const observedAt = context.now().getTime();
     const requested = csvRequestCodes([...codes].sort(), range.start, range.end);
+    if (requested.length === 0) {
+        return err({ kind: 'empty_export' }); // a request naming no currency can list nothing
+    }
     const exported = await context.fetchRange(requested, range.start, range.end);
     if (exported.kind !== 'ok') {
         return stopFill(context, range, sampledThrough, codes, stoppedBy(exported));

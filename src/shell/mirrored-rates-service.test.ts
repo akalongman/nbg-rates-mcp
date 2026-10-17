@@ -600,6 +600,27 @@ describe('createMirroredRatesService over an unresolved date', () => {
         expect(fixture.fake.requests).toEqual(['day:en:2026-10-08']);
     });
 
+    it("skips an instance cache entry older than the mirror's observation of the unresolved publication", async () => {
+        // The mirror observed USD 2.7 for 2026-10-07 at 09:30; the instance cached the recorded 2.6025 at 09:00.
+        const observedAt0930 = publication(syntheticTable('2026-10-07', { USD: 2.7, EUR: 3.1 }), {
+            observedAt: Date.parse('2026-10-08T05:30:00Z'),
+        });
+        const fixture = await setUp({
+            unresolved: [date('2026-10-07')],
+            publications: [...OCTOBER.filter((subject) => subject.validFrom !== '2026-10-07'), observedAt0930],
+        });
+        fixture.fake.publish(observedAt0930);
+        const cached = snapshotFromDay(EN_2026_10_07, date('2026-10-07'), date('2026-10-08'));
+        if (!cached.ok) {
+            throw new Error('the recorded 2026-10-07 table does not answer 2026-10-07');
+        }
+        fixture.cache.set('en', date('2026-10-07'), cached.value, new Date('2026-10-08T05:00:00Z'));
+        const answer = await fixture.service.getSnapshot(snapshotArgs('2026-10-07', 'en', [USD]));
+        expect(answer.ok && answer.value.rates.map((entry) => entry.rate)).toEqual([2.7]);
+        expect(fixture.asked).toEqual(['live.getSnapshot']);
+        expect(fixture.fake.requests).toEqual(['day:en:2026-10-07']);
+    });
+
     it('writes no past table for a past date whose publication in force is unresolved', async () => {
         const fixture = await setUp({ unresolved: [date('2024-03-16')] });
         const answer = await fixture.service.getSnapshot(snapshotArgs('2024-03-18'));
