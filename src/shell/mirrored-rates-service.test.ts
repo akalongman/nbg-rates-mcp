@@ -314,6 +314,8 @@ describe('createMirroredRatesService for a past date (rule 7)', () => {
     describe('writes nothing when', () => {
         it('NBG answers with a table valid from another day than the rows in force (Review Focus 2)', async () => {
             const fixture = await setUp();
+            // The 2024-03-16 quotes under the 2024-03-15 date: only the valid-from check tells the table from the rows.
+            fixture.fake.publish(publication(syntheticTable('2024-03-15', { USD: 2.6534, EUR: 2.8842 })));
             fixture.fake.withdraw(date('2024-03-16')); // NBG now answers 2024-03-16 with the 2024-03-15 table
             const answer = await fixture.service.getSnapshot(snapshotArgs('2024-03-16'));
             expect(answer.ok && answer.value.effectiveDate).toBe('2024-03-15');
@@ -574,6 +576,35 @@ describe('createMirroredRatesService reader order (Review Focus 1)', () => {
         expect(answer.ok && answer.value.effectiveDate).toBe('2026-10-10');
         expect(answer).toEqual(await fixture.reference.getSnapshot(snapshotArgs('2026-10-10')));
         expect(fixture.fake.requests).toEqual(['day:en:2026-10-10']);
+    });
+
+    it('decides a history from the state it read first, so a commit between its reads cannot answer older rows', async () => {
+        // As above: the mirror is fresh at 10:00 on Saturday 2026-10-10, and its span ends 10-09.
+        const later = ['2026-10-08', '2026-10-09', '2026-10-10'].map((day, index) =>
+            publication(syntheticTable(day, { USD: 2.61 + index / 100, EUR: 3.02 })),
+        );
+        const fixture = await setUp({
+            now: new Date('2026-10-10T06:00:00Z'),
+            freshUntil: Date.parse('2026-10-10T07:05:00Z'),
+            nbg: [...NBG, ...later],
+        });
+        let operations = 0;
+        fixture.onOperation(async () => {
+            operations += 1;
+            if (operations === 2) {
+                // A catch-up commits the publications and extends the span after the request's first read.
+                await seedMirror(fixture.store, {
+                    publications: later,
+                    state: { span: { start: SPAN.start, end: date('2026-10-11') } },
+                });
+                fixture.markSeeded();
+            }
+        });
+        const args = { currency: USD, from: date('2026-10-01'), to: date('2026-10-10') };
+        const answer = await fixture.service.getHistory(args);
+        expect(answer.ok).toBe(true);
+        expect(answer).toEqual(await fixture.reference.getHistory(args));
+        expect(fixture.asked).toEqual(['live.getHistory']);
     });
 });
 

@@ -299,9 +299,9 @@ interface HistoryCase extends HistoryAsk {
     readonly carried?: ReadonlyArray<string>;
 }
 
-// BGN's last table, 2025-12-31, lies in the interval both ranges ask NBG for (their start minus 31 days to their end),
-// so neither is unknown_currency: before the interval's first table, and from its first table without BGN, the rate in
-// force is missing.
+// BGN's last table is 2025-12-31. A range whose interval (its start minus 31 days to its end, start included) holds it
+// is not unknown_currency: before the interval's first table, and from its first table without BGN, the rate in force
+// is missing. A range whose interval starts after it is unknown_currency through both paths (spec rule 1).
 const HISTORY_CASES: ReadonlyArray<HistoryCase> = [
     {
         name: 'across the 2021 changeover',
@@ -323,6 +323,20 @@ const HISTORY_CASES: ReadonlyArray<HistoryCase> = [
         from: '2026-01-01',
         to: '2026-01-10',
         error: { kind: 'no_data_for_date', date: date('2026-01-03'), currency: code('BGN') },
+    },
+    {
+        name: 'of BGN in 2026 alone',
+        currency: 'BGN',
+        from: '2026-02-01',
+        to: '2026-02-05',
+        error: { kind: 'unknown_currency', code: 'BGN' },
+    },
+    {
+        name: 'of BGN from the day its last table opens the interval',
+        currency: 'BGN',
+        from: '2026-01-31',
+        to: '2026-02-05',
+        error: { kind: 'no_data_for_date', date: date('2026-01-31'), currency: code('BGN') },
     },
 ];
 

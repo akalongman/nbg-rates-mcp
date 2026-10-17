@@ -197,9 +197,15 @@ describe('runSync: the hourly check', () => {
 
     it('drops AMD from the mirror for 2026-10-06 when NBG withdraws it from both views', async () => {
         const harness = await bootstrapped();
+        await skipDailySteps(harness, '2026-10-08');
         const withdrawn = publication(withoutCode(tableFixture('en', '2026-10-06'), 'AMD'));
         harness.fake.publish(withdrawn);
-        await harness.run('2026-10-08T11:00');
+        expect(await harness.run('2026-10-08T11:00')).toMatchObject({
+            syncResult: 'ok',
+            syncDetail: null,
+            checked: true,
+            committed: 1,
+        });
         const stored = await held(harness.store, '2026-10-06');
         expect(stored).toEqual(expectedHeld(withdrawn, at('2026-10-08T11:00:02')));
         expect(stored?.en.currencies.map((row) => row.code)).not.toContain('AMD');

@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it, vi, type Mock } from 'vitest';
-import { createMemoryMirrorStore } from '../test/helpers/memory-mirror-store.js';
+import { startFixtureServer } from '../test/helpers/fixture-server.js';
+import { toolCall } from '../test/helpers/mcp-http.js';
+import { createMemoryMirrorStore, seedMirror } from '../test/helpers/memory-mirror-store.js';
+import { publication, tableFixture } from '../test/helpers/publications.js';
+import { date } from '../test/helpers/values.js';
 import type {
     ApiGatewayV2Event,
     ApiGatewayV2Result,
@@ -301,6 +305,59 @@ describe('lambda handler and NBG_RATES_MIRROR_TABLE', () => {
             syncDetail: 'upstream_unavailable',
             nbgRequests: 1,
         });
+    });
+
+    it('shares its lookup scopes with the HTTP handler, so a request waits on one hanging past-table write', async () => {
+        // Two past dates with their archive rows and no tables: each is asked of NBG and its table kept (rule 7).
+        const pastDays = ['2026-10-02', '2026-10-03'];
+        const store = createMemoryMirrorStore();
+        await seedMirror(store, {
+            archiveRows: pastDays.map((day) => {
+                const { validFrom, rows, observedAt } = publication(tableFixture('en', day));
+                return { validFrom, rows, observedAt };
+            }),
+            state: {
+                span: { start: date('2026-10-06'), end: date('2026-10-09') },
+                rowsStart: date('2026-10-01'),
+                freshUntil: Date.now() + 3_600_000,
+            },
+        });
+        const operations: string[] = [];
+        // Every past-table write hangs until its own bound aborts it.
+        store.before((operation) => {
+            operations.push(operation);
+            return operation === 'fill' ? new Promise<void>(() => undefined) : undefined;
+        });
+        vi.doMock('./shell/mirror-dynamodb.js', () => ({ createDynamoMirrorStore: () => store }));
+        const server = await startFixtureServer();
+        try {
+            vi.stubEnv('NBG_RATES_MIRROR_TABLE', 'nbg-rates-mirror');
+            vi.stubEnv('NBG_RATES_BASE_URL', server.baseUrl);
+            vi.stubEnv('NBG_RATES_HTTP_HOSTS', 'nbg-rates.env.ge');
+            vi.spyOn(console, 'log').mockImplementation(() => undefined);
+            vi.resetModules();
+            const { handler } = await import('./lambda.js');
+            const items = pastDays.map((day) => ({ amount: 100, from: 'USD', to: 'GEL', date: day }));
+
+            const result = answered(
+                await handler(
+                    { ...event('apigw-post-mcp'), body: JSON.stringify(toolCall('nbg_convert_many', { items })) },
+                    CONTEXT,
+                ),
+            );
+
+            expect(result.statusCode).toBe(200);
+            expect(firstMessage(result.body)).toMatchObject({
+                result: { structuredContent: { converted: 2, skipped: 0 } },
+            });
+            expect(
+                server.requests.map((request) => new URL(request.url, server.baseUrl).searchParams.get('date')),
+            ).toEqual(pastDays);
+            // The first write's failure stops the request's writes: one per request, not one per date.
+            expect(operations.filter((operation) => operation === 'fill')).toHaveLength(1);
+        } finally {
+            await server.close();
+        }
     });
 
     it('loads no DynamoDB module for a blank variable and logs mirror_not_configured for a sync event', async () => {
