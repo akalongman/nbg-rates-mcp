@@ -1,13 +1,78 @@
 import { readFileSync } from 'node:fs';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { createMemoryMirrorStore, seedMirror, type MemoryMirrorStore } from '../../test/helpers/memory-mirror-store.js';
+import { publication, tableFixture } from '../../test/helpers/publications.js';
 import { date } from '../../test/helpers/values.js';
-import { createServiceFromEnvironment, readPackageVersion } from './environment.js';
+import { snapshotFromDay } from '../core/normalize.js';
+import {
+    createServiceFromEnvironment,
+    mirrorTableFromEnvironment,
+    readPackageVersion,
+    SHORT_ATTEMPT_TIMEOUT_MS,
+} from './environment.js';
+import { createLookupScopes } from './lookup-scope.js';
+
+/** 10:00 in Tbilisi (UTC+4) on Thursday 2026-10-08. */
+const NOW = new Date('2026-10-08T06:00:00Z');
+/** 11:05 in Tbilisi: the 11:00 check plus its margin. */
+const FRESH_UNTIL = Date.parse('2026-10-08T07:05:00Z');
+/** 09:05 in Tbilisi: the 10:00 check has not succeeded. */
+const STALE_SINCE = Date.parse('2026-10-08T05:05:00Z');
+const EN_2026_10_07 = tableFixture('en', '2026-10-07');
+/** The answer NBG's table valid from 2026-10-07 gives for that date, today being 2026-10-08. */
+const ANSWER = snapshotFromDay(EN_2026_10_07, date('2026-10-07'), date('2026-10-08'));
+
+/** A mirror whose span holds the publication of 2026-10-07, fresh until `freshUntil`. */
+async function mirrorWith(freshUntil: number): Promise<MemoryMirrorStore> {
+    const store = createMemoryMirrorStore();
+    await seedMirror(store, {
+        publications: [publication(EN_2026_10_07, { ka: tableFixture('ka', '2026-10-07') })],
+        state: { span: { start: date('2026-10-07'), end: date('2026-10-09') }, freshUntil },
+    });
+    return store;
+}
+
+/**
+ * Stubs fetch with an NBG that answers 503 to everything, and lists each request's per-try timeout: the milliseconds
+ * of the AbortSignal.timeout whose signal the request carries.
+ */
+function failingNbg(): { readonly fetch: Mock<typeof fetch>; readonly timeouts: ReadonlyArray<number> } {
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    const issued = new Map<AbortSignal, number>();
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+        const signal = timeout(ms);
+        issued.set(signal, ms);
+        return signal;
+    });
+    const timeouts: number[] = [];
+    const fetchStub = vi.fn<typeof fetch>((_url, init) => {
+        const signal = init?.signal ?? undefined;
+        timeouts.push(signal === undefined ? Number.NaN : (issued.get(signal) ?? Number.NaN));
+        return Promise.resolve(new Response('down', { status: 503 }));
+    });
+    vi.stubGlobal('fetch', fetchStub);
+    return { fetch: fetchStub, timeouts };
+}
 
 describe('readPackageVersion', () => {
     it('reads the version of the package.json it is pointed at', () => {
         const packageJson = new URL('../../package.json', import.meta.url);
         const { version } = JSON.parse(readFileSync(packageJson, 'utf8')) as { version: string };
         expect(readPackageVersion(packageJson)).toBe(version);
+    });
+});
+
+describe('mirrorTableFromEnvironment', () => {
+    it.each([
+        ['unset', {}],
+        ['empty', { NBG_RATES_MIRROR_TABLE: '' }],
+        ['blank', { NBG_RATES_MIRROR_TABLE: '  ' }],
+    ])('names no table when the variable is %s', (_case, env) => {
+        expect(mirrorTableFromEnvironment(env)).toBeUndefined();
+    });
+
+    it('names the table trimmed', () => {
+        expect(mirrorTableFromEnvironment({ NBG_RATES_MIRROR_TABLE: ' nbg-rates-mirror \n' })).toBe('nbg-rates-mirror');
     });
 });
 
@@ -56,5 +121,50 @@ describe('createServiceFromEnvironment', () => {
         await service.getSnapshot({ date: date('2026-10-01'), language: 'en' });
 
         expect(consoleError).not.toHaveBeenCalled();
+    });
+});
+
+describe('createServiceFromEnvironment with a mirror', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+    });
+
+    it('answers a fresh covered date from the mirror with no request to NBG_RATES_BASE_URL', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(NOW);
+        const nbg = failingNbg();
+        const store = await mirrorWith(FRESH_UNTIL);
+        const { service } = createServiceFromEnvironment(
+            '1.2.3',
+            { NBG_RATES_BASE_URL: 'http://nbg.example' },
+            { store, scopes: createLookupScopes() },
+        );
+
+        const result = await service.getSnapshot({ date: date('2026-10-07'), language: 'en' });
+
+        expect(result).toEqual(ANSWER);
+        expect(nbg.fetch).not.toHaveBeenCalled();
+    });
+
+    it('makes its short attempt one try of SHORT_ATTEMPT_TIMEOUT_MS, then answers from a stale mirror', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(NOW);
+        const nbg = failingNbg();
+        const store = await mirrorWith(STALE_SINCE);
+        const { service } = createServiceFromEnvironment(
+            '1.2.3',
+            { NBG_RATES_BASE_URL: 'http://nbg.example' },
+            { store, scopes: createLookupScopes() },
+        );
+
+        const result = await service.getSnapshot({ date: date('2026-10-07'), language: 'en' });
+
+        expect(SHORT_ATTEMPT_TIMEOUT_MS).toBe(3_000);
+        expect(result).toEqual(ANSWER);
+        expect(nbg.fetch).toHaveBeenCalledTimes(1);
+        expect(nbg.fetch.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^http:\/\/nbg\.example\/gw\/api\//));
+        expect(nbg.timeouts).toEqual([3_000]);
     });
 });
