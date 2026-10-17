@@ -7,9 +7,14 @@ import { EMPTY_MIRROR_STATE } from '../core/mirror.js';
 import type { NbgCsvRow } from '../core/nbg-csv.js';
 import { ok } from '../core/types.js';
 
-describeMirrorStoreContract('memory', () =>
-    Promise.resolve({ store: createMemoryMirrorStore(), close: () => Promise.resolve() }),
-);
+describeMirrorStoreContract('memory', () => {
+    const store = createMemoryMirrorStore();
+    return Promise.resolve({
+        store,
+        rawItem: (pk: string, sk: string) => Promise.resolve(store.rawItem(pk, sk)),
+        close: () => Promise.resolve(),
+    });
+});
 
 const SIGNAL = new AbortController().signal;
 const EN_2026_10_07 = tableFixture('en', '2026-10-07');
@@ -18,18 +23,11 @@ const MARCH_15 = syntheticTable('2024-03-15', { USD: 2.65, EUR: 2.88 });
 const MARCH_18 = syntheticTable('2024-03-18', { USD: 2.67, EUR: 2.9 });
 
 describe('createMemoryMirrorStore', () => {
-    it('keeps a past table as pk, sk and the table alone', async () => {
+    it('lays out items as the DynamoDB store does, with each payload as a JSON string', async () => {
         const store = createMemoryMirrorStore();
         await store.fillPastTable(date('2024-03-15'), 'en', MARCH_15, SIGNAL);
-        const raw = store.rawItem('table#en', '2024-03-15');
-        expect(Object.keys(raw ?? {}).sort()).toEqual(['day', 'pk', 'sk']);
-        expect(raw).toMatchObject({ pk: 'table#en', sk: '2024-03-15' });
-        expect(JSON.parse(String(raw?.day))).toEqual(MARCH_15);
-        expect(store.rawItem('table#ka', '2024-03-15')).toBeUndefined();
-    });
+        expect(JSON.parse(String(store.rawItem('table#en', '2024-03-15')?.day))).toEqual(MARCH_15);
 
-    it('lays out committed items with their observation', async () => {
-        const store = createMemoryMirrorStore();
         await store.commitPublication(AT_1000, SIGNAL);
         for (const pk of ['rows', 'table#en', 'table#ka']) {
             expect(store.rawItem(pk, '2026-10-07')).toMatchObject({ pk, sk: '2026-10-07', observedAt: 1000 });
@@ -40,8 +38,11 @@ describe('createMemoryMirrorStore', () => {
             'rows',
             'sk',
         ]);
+        expect(JSON.parse(String(store.rawItem('rows', '2026-10-07')?.rows))).toEqual(AT_1000.rows);
         await store.updateState((state) => ({ next: state, outcome: undefined }), SIGNAL);
-        expect(store.rawItem('state', 'state')).toMatchObject({ pk: 'state', sk: 'state', revision: 1 });
+        const stateItem = store.rawItem('state', 'state');
+        expect(stateItem).toMatchObject({ pk: 'state', sk: 'state', revision: 1 });
+        expect(JSON.parse(String(stateItem?.state))).toEqual({ ...EMPTY_MIRROR_STATE, revision: 1 });
     });
 
     it('records each successful write in order, and nothing for superseded, present or failed calls', async () => {

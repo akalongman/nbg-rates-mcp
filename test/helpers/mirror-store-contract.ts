@@ -58,12 +58,17 @@ function archiveRows(validFrom: string, rows: ReadonlyArray<NbgCsvRow>, observed
 }
 
 /**
- * The behaviour every MirrorStore shares, run against a fresh store per case. `open` gives an empty store and the
- * function that releases it.
+ * The behaviour every MirrorStore shares, run against a fresh store per case. `open` gives an empty store, a reader of
+ * one stored item with every attribute it holds (to check what a past table carries), and the function that releases
+ * the store.
  */
 export function describeMirrorStoreContract(
     name: string,
-    open: () => Promise<{ readonly store: MirrorStore; close(): Promise<void> }>,
+    open: () => Promise<{
+        readonly store: MirrorStore;
+        rawItem(pk: string, sk: string): Promise<Readonly<Record<string, unknown>> | undefined>;
+        close(): Promise<void>;
+    }>,
 ): void {
     describe(`${name} mirror store contract`, () => {
         let opened: Awaited<ReturnType<typeof open>>;
@@ -242,8 +247,12 @@ export function describeMirrorStoreContract(
         });
 
         describe('fillPastTable', () => {
-            it('adds a table that carries no observation', async () => {
+            it('adds an item that holds pk, sk and the table alone', async () => {
                 expect(await store.fillPastTable(date('2024-03-15'), 'en', MARCH_15, SIGNAL)).toEqual(ok('written'));
+                // A past table holds no time, client, currency or request detail.
+                const raw = await opened.rawItem('table#en', '2024-03-15');
+                expect(Object.keys(raw ?? {}).sort()).toEqual(['day', 'pk', 'sk']);
+                expect(raw).toMatchObject({ pk: 'table#en', sk: '2024-03-15' });
                 expect(await store.readTable(date('2024-03-15'), 'en', SIGNAL)).toStrictEqual(
                     ok({ validFrom: '2024-03-15', day: MARCH_15 }),
                 );
