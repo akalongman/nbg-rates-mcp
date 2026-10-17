@@ -28,6 +28,11 @@ function compareDates(left: CalendarDate, right: CalendarDate): number {
     return left < right ? -1 : left > right ? 1 : 0;
 }
 
+/** validFrom, then publishedOn: the order in which assembleHistory applies rows; the later row wins a tie. */
+export function compareCsvRows(left: NbgCsvRow, right: NbgCsvRow): number {
+    return compareDates(left.validFrom, right.validFrom) || compareDates(left.publishedOn, right.publishedOn);
+}
+
 /**
  * Builds one point per calendar day from CSV export rows of the requested currency and the calendar currency.
  * The rate in force on a day comes from the latest publication valid on or before it, and that publication must
@@ -51,12 +56,7 @@ export function assembleHistory(
         return err({ kind: 'no_data_for_date', date: first, currency });
     }
     // Oldest first; on equal validFrom the later publication wins because it is applied last.
-    const ordered = rows
-        .filter((row) => row.code === currency)
-        .sort(
-            (left, right) =>
-                compareDates(left.validFrom, right.validFrom) || compareDates(left.publishedOn, right.publishedOn),
-        );
+    const ordered = rows.filter((row) => row.code === currency).sort(compareCsvRows);
     if (ordered.length === 0) {
         return err({ kind: 'unknown_currency', code: currency });
     }
