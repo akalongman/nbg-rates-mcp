@@ -1,6 +1,6 @@
 import { TBILISI_TIME_ZONE, rejectBeyondTomorrow, todayIn } from '../core/dates.js';
 import { assembleHistory, planHistory, type HistoryPlan } from '../core/history.js';
-import { coversInterval, inSpan, isFresh, isPastDate } from '../core/mirror.js';
+import { coversInterval, hasUnresolvedBetween, inSpan, isFresh, isPastDate } from '../core/mirror.js';
 import { checkTableAgainstRows, exportRows } from '../core/mirror-publication.js';
 import type { NbgDay } from '../core/nbg-schema.js';
 import { selectCurrencies, snapshotFromDay } from '../core/normalize.js';
@@ -130,7 +130,11 @@ export function createMirroredRatesService(deps: MirroredServiceDeps): RatesServ
         return fallback;
     }
 
-    /** State first, then the rows in force and the table, all under one bound (plan decision 3). */
+    /**
+     * State first, then the rows in force and the table, all under one bound (plan decision 3). A date in `unresolved`
+     * from the rows' publication to the date asked leaves the date uncovered before the table read, with no rows to
+     * keep a past table against: the sources disagree there, so the mirror may not hold what NBG answers now.
+     */
     async function readSnapshot(
         date: CalendarDate,
         language: Language,
@@ -149,7 +153,7 @@ export function createMirroredRatesService(deps: MirroredServiceDeps): RatesServ
             return nothing;
         }
         const rows = await deps.mirror.readRowsInForce(date, signal);
-        if (!rows.ok || rows.value === undefined) {
+        if (!rows.ok || rows.value === undefined || hasUnresolvedBetween(state.value, rows.value.validFrom, date)) {
             return nothing;
         }
         const table = await deps.mirror.readTable(rows.value.validFrom, language, signal);

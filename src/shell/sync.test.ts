@@ -241,7 +241,7 @@ describe('runSync: the hourly check', () => {
         expect(afterFirst.unresolved).toEqual(['2026-10-09']);
         expect(afterFirst.freshUntil).toBe(at('2026-10-08T19:05'));
 
-        // The unresolved date inside the span answers as the live path does, without asking NBG.
+        // The unresolved date inside the span takes the live path, so its answer is NBG's own.
         const now = tbilisi('2026-10-08T18:00:30');
         const { service, asked } = mirroredService(harness, now);
         const reference = createRatesService({
@@ -251,7 +251,7 @@ describe('runSync: the hourly check', () => {
         });
         const ask = { date: date('2026-10-09'), language: 'en' as const };
         expect(await service.getSnapshot(ask)).toEqual(await reference.getSnapshot(ask));
-        expect(asked).toEqual([]);
+        expect(asked).toEqual(['live.getSnapshot']);
 
         harness.fake.publishJson(tomorrow);
         const result = await harness.run('2026-10-08T19:00');

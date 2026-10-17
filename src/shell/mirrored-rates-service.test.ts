@@ -97,6 +97,8 @@ interface Options {
     /** The client behind shortLive; default the fake's. */
     readonly shortClient?: NbgClient;
     readonly readTimeoutMs?: number;
+    /** The state's unresolved dates; default none. */
+    readonly unresolved?: ReadonlyArray<CalendarDate>;
 }
 
 interface Fixture {
@@ -145,7 +147,12 @@ async function setUp(options: Options = {}): Promise<Fixture> {
     await seedMirror(store, {
         publications: options.publications ?? OCTOBER,
         archiveRows: (options.archive ?? [MARCH_15, MARCH_16]).map(archiveItem),
-        state: { span: options.span ?? SPAN, rowsStart: ROWS_START, freshUntil: options.freshUntil ?? FRESH_UNTIL },
+        state: {
+            span: options.span ?? SPAN,
+            rowsStart: ROWS_START,
+            freshUntil: options.freshUntil ?? FRESH_UNTIL,
+            unresolved: options.unresolved ?? [],
+        },
     });
     for (const { language, day } of options.pastTables ?? []) {
         const filled = await store.fillPastTable(tableValidFrom(day), language, day, SIGNAL);
@@ -567,6 +574,50 @@ describe('createMirroredRatesService reader order (Review Focus 1)', () => {
         expect(answer.ok && answer.value.effectiveDate).toBe('2026-10-10');
         expect(answer).toEqual(await fixture.reference.getSnapshot(snapshotArgs('2026-10-10')));
         expect(fixture.fake.requests).toEqual(['day:en:2026-10-10']);
+    });
+});
+
+describe('createMirroredRatesService over an unresolved date', () => {
+    /** Tomorrow's table, which NBG's JSON shows while its CSV does not, so the window left 2026-10-09 unresolved. */
+    const OCTOBER_9 = publication(syntheticTable('2026-10-09', { USD: 2.6013, EUR: 3.0222 }));
+
+    it("asks NBG for tomorrow while it is unresolved, before reading a table, and answers NBG's new table", async () => {
+        const fixture = await setUp({ unresolved: [date('2026-10-09')], nbg: [...NBG, OCTOBER_9] });
+        const answer = await fixture.service.getSnapshot(snapshotArgs('2026-10-09'));
+        expect(answer.ok && answer.value.effectiveDate).toBe('2026-10-09');
+        expect(answer).toEqual(await fixture.reference.getSnapshot(snapshotArgs('2026-10-09')));
+        expect(fixture.operations).toEqual(['readState', 'readRowsInForce']);
+        expect(fixture.asked).toEqual(['live.getSnapshot']);
+        expect(fixture.fake.requests).toEqual(['day:en:2026-10-09']);
+    });
+
+    it('asks NBG for a date whose publication in force is unresolved', async () => {
+        const fixture = await setUp({ unresolved: [date('2026-10-07')] });
+        const answer = await fixture.service.getSnapshot(snapshotArgs('2026-10-08'));
+        expect(answer.ok && answer.value.effectiveDate).toBe('2026-10-07');
+        expect(answer).toEqual(await fixture.reference.getSnapshot(snapshotArgs('2026-10-08')));
+        expect(fixture.asked).toEqual(['live.getSnapshot']);
+        expect(fixture.fake.requests).toEqual(['day:en:2026-10-08']);
+    });
+
+    it('writes no past table for a past date whose publication in force is unresolved', async () => {
+        const fixture = await setUp({ unresolved: [date('2024-03-16')] });
+        const answer = await fixture.service.getSnapshot(snapshotArgs('2024-03-18'));
+        expect(answer.ok && answer.value.effectiveDate).toBe('2024-03-16');
+        expect(answer).toEqual(await fixture.reference.getSnapshot(snapshotArgs('2024-03-18')));
+        expect(fixture.fake.requests).toEqual(['day:en:2024-03-18']);
+        expect(fills(fixture)).toBe(0);
+    });
+
+    it('answers from the mirror when no unresolved date lies from the publication in force to the date', async () => {
+        const fixture = await setUp({ unresolved: [date('2026-10-06'), date('2026-10-09')] });
+        for (const day of ['2026-10-07', '2026-10-08']) {
+            const answer = await fixture.service.getSnapshot(snapshotArgs(day));
+            expect(answer.ok).toBe(true);
+            expect(answer).toEqual(await fixture.reference.getSnapshot(snapshotArgs(day)));
+        }
+        expect(fixture.asked).toEqual([]);
+        expect(fixture.fake.requests).toEqual([]);
     });
 });
 
