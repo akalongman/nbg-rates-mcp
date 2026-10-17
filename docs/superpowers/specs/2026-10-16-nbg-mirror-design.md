@@ -220,17 +220,20 @@ govern the sync's writes; a request's past-table write is rule 7.
   a past table is checked against them instead (rule 7).
 - A write never replaces newer data with older: every publication write
   is conditional on its observation time being later than the stored
-  one, and the span, the archive rows' start, the fresh-until time and
-  the window state only move forward under the same kind of condition. An
-  older run finishing after a newer one therefore changes nothing.
+  one, and the span, the archive rows' start, the fresh-until time, the
+  window state and the archive rows' fill's progress only move forward
+  under the same kind of condition. An older run finishing after a newer
+  one therefore changes nothing.
 - The complete span grows only by contiguous verified dates. After an
   interruption longer than the late-publication window (the sync down for
   ten days, say), a run catches up from the old end of the span, one
   verified publication after another, before the span may reach
-  tomorrow. The archive rows' start moves backwards the same way, one
-  complete year of rows after another. A new publication is committed
-  before the span is extended over it, and readers ignore any data
-  outside the span and the archive rows they read.
+  tomorrow. The archive rows' start moves backwards the same way, over
+  one whole range at a time (a calendar year, or the part of one before
+  the span or from `NBG_ARCHIVE_START`) once every row of that range is
+  stored. A new publication is committed before the span is extended
+  over it, and readers ignore any data outside the span and the archive
+  rows they read.
 - Readers read the record first and the data second, with strongly
   consistent reads, follow every query page and retry every unprocessed
   key before treating anything as absent, so a just-committed publication
@@ -441,6 +444,11 @@ that bound on 2026-10-17.
   and the table in force on its last day (31 December, or the day before
   the span's start), in English, give the year's codes, then one CSV
   export of those codes covers the year (AZN left out for 2006 and 2007).
+  A year's range whose last day's table is valid from before the range's
+  start holds no publication (1 to 8 January, for a span starting at the
+  year's first publication on 9 January): it gets no CSV export, and the
+  archive rows' start moves over it, because its export would list
+  nothing and fail every run as an empty export.
   That is about 430 requests in all, at most two years per hourly run
   after its check. A run takes as many of a year's samples as its
   deadline allows and keeps them, with their codes, in the state record,
@@ -457,7 +465,7 @@ that bound on 2026-10-17.
   for its commit and its log line, and leaves unfinished work (a slice,
   an archive year, an unresolved publication) for the next run. A run
   never commits half of a publication or moves the archive rows' start
-  over half a year because it ran out of time.
+  over part of a range because it ran out of time.
 - Delivery: EventBridge Scheduler's retry policy is set to no retries
   with the shortest event age, and so is the function's asynchronous
   invocation configuration, because Lambda would otherwise retry a failed
@@ -476,10 +484,11 @@ that bound on 2026-10-17.
   The archive rows' one-off fill comes on top. A past-table write adds no
   request: it stores what the request's own live lookup fetched.
 - Writes one log line per run: the kind of run, its outcome, the NBG
-  failure kind if any, publications committed, the complete span. No user
-  data exists in the sync to log. The line uses its own field names, not
-  `nbgError`, so the existing NbgFailures metric filter never counts a
-  failed sync (the builder's question 6).
+  failure kind if any, publications committed, the complete span and the
+  archive rows' start (`rowsStart`), so the fill's progress shows hour by
+  hour. No user data exists in the sync to log. The line uses its own
+  field names, not `nbgError`, so the existing NbgFailures metric filter
+  never counts a failed sync (the builder's question 6).
 
 ### Where the code runs
 
@@ -635,7 +644,9 @@ sentence; the mirror's past tables stay but are no longer added to.
   verified.
 - The archive rows' fill: a code that appears only in a mid-year table is
   in that year's rows; the 2006 and 2007 exports leave AZN out; the
-  archive rows' start moves only over a whole year; a re-check that finds
+  archive rows' start moves only over a whole range (a calendar year, or
+  the part of one before the span or from `NBG_ARCHIVE_START`), including
+  one that holds no publication, which asks no CSV; a re-check that finds
   a past publication's rows changed rewrites them and deletes its past
   tables.
 - Freshness: a mirror last checked by the 16:00 run answers at 16:59 but
