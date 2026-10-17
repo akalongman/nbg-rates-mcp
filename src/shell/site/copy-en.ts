@@ -94,7 +94,7 @@ export const COPY_EN: PageCopy = {
     selfHostHeading: SELF_HOST_HEADING,
     selfHost:
         'Install the Claude Desktop extension, or the npm package for Claude Code, Cursor and other MCP clients. ' +
-        'Rate lookups then go from your computer straight to NBG, without passing through this hosted copy.',
+        'Rate lookups then go from your computer straight to NBG, without passing through this hosted service.',
     selfHostLink: 'Installation instructions on GitHub',
     privacyHeading: 'Privacy',
     privacy: [
