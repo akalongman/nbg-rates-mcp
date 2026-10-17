@@ -59,7 +59,9 @@ that NBG did not respond usably and the request can be retried.
 - A scheduled probe of NBG from AWS. It would add bot-like traffic from
   an AWS address, the kind of traffic NBG's firewall reacts to, and cost
   money. The consequence is accepted: an outage during which nobody uses
-  the hosted endpoint sends no email.
+  the hosted endpoint sends no email. Superseded on 2026-10-17 by the
+  scheduled sync of `2026-10-16-nbg-mirror-design.md`, accepted there at
+  about 45 to 75 requests a day and a one-off fill of about 430.
 - Distinguishing "NBG is blocking us" from "NBG is down". Both reach the
   code as the same `upstream_unavailable` error, and the owner wants the
   email either way.

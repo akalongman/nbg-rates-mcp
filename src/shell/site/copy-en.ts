@@ -98,7 +98,8 @@ export const COPY_EN: PageCopy = {
     selfHostLink: 'Installation instructions on GitHub',
     privacyHeading: 'Privacy',
     privacy: [
-        'The connector needs no account and never records the amounts, dates or currencies you ask about.',
+        'The connector needs no account and never records the amounts or currencies you ask about. For a past date ' +
+            'it keeps a copy of NBG’s table the first time anyone asks; the copy does not say who asked or when.',
         'It keeps two logs for 30 days: which tool was called from which client and whether NBG answered, and the ' +
             'gateway’s access log, with the time, path, status, and the caller’s IP address and user agent. For ' +
             'claude.ai and ChatGPT, the caller is Anthropic’s or OpenAI’s server.',

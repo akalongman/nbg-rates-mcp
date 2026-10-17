@@ -345,9 +345,26 @@ encoded with `isBase64Encoded: true`. The interfaces are local so the
 package gains no `@types/aws-lambda` dependency; they name only the
 fields read.
 
+The handler also takes the scheduled sync events EventBridge Scheduler
+sends, `{ "nbgRatesSync": "hourly" | "window", "scheduledTime": "<ISO 8601>" }`,
+so its event is now `unknown`, it takes the Lambda context as a second
+argument, and it returns `undefined` for a sync event. An event whose
+`requestContext.http` is an object is answered as above; any other event
+must be a sync event, or the handler throws `unrecognized event` before
+anything runs, which Lambda counts as a function error. A sync event
+runs the sync over the mirror table, or, with no table configured, only
+logs that no mirror is configured (added 2026-10-17,
+`2026-10-16-nbg-mirror-design.md`).
+
 `src/bin.ts` and `src/lambda.ts` build the rates service and read the
 package version through one module, `src/shell/environment.ts`, so the
 two entries cannot drift apart.
+
+With `NBG_RATES_MIRROR_TABLE` set, the rates service this module builds
+for the Lambda entry reads the mirror first, and a request may write a
+past date's NBG table to the mirror, the one write a request can make;
+unset, both entries get the same service as before (added 2026-10-17,
+`2026-10-16-nbg-mirror-design.md`).
 
 ### Environment variables
 
@@ -356,6 +373,12 @@ answers for; unset or empty disables the check. Used by `--http` and by
 the Lambda entry. Terraform sets it to `nbg-rates.env.ge` on the function.
 `NBG_RATES_BASE_URL` and `NBG_RATES_DEBUG` keep their meaning in both
 entries.
+
+`NBG_RATES_MIRROR_TABLE`: the DynamoDB table of the hosted NBG mirror,
+read on Lambda only, by the Lambda entry; `src/bin.ts` never reads it,
+so `--http` and stdio ignore it. Unset, empty or blank (after trimming)
+means no mirror, and requests are answered exactly as without the
+variable (added 2026-10-17, `2026-10-16-nbg-mirror-design.md`).
 
 ### Package
 

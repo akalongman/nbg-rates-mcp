@@ -449,7 +449,7 @@ that bound on 2026-10-17.
   year's first publication on 9 January): it gets no CSV export, and the
   archive rows' start moves over it, because its export would list
   nothing and fail every run as an empty export.
-  That is about 430 requests in all, at most two years per hourly run
+  The fill is about 430 requests in all, at most two years per hourly run
   after its check. A run takes as many of a year's samples as its
   deadline allows and keeps them, with their codes, in the state record,
   so the next run goes on from the next sample and the CSV export goes
@@ -485,10 +485,11 @@ that bound on 2026-10-17.
   request: it stores what the request's own live lookup fetched.
 - Writes one log line per run: the kind of run, its outcome, the NBG
   failure kind if any, publications committed, the complete span and the
-  archive rows' start (`rowsStart`), so the fill's progress shows hour by
-  hour. No user data exists in the sync to log. The line uses its own
-  field names, not `nbgError`, so the existing NbgFailures metric filter
-  never counts a failed sync (the builder's question 6).
+  archive rows' start (`rowsStart`), so the line shows how far back the
+  archive rows reach, hour by hour. No user data exists in the sync to
+  log. The line uses its own field names, not `nbgError`, so the existing
+  NbgFailures metric filter never counts a failed sync (the builder's
+  question 6).
 
 ### Where the code runs
 
@@ -636,12 +637,12 @@ sentence; the mirror's past tables stay but are no longer added to.
 - Committing: a reader never sees part of a publication; a run stopped
   between committing a publication and extending the span leaves every
   answer unchanged; an older run finishing after a newer one changes
-  nothing; a duplicate or more than a minute late event does nothing; a
-  CSV showing a row the JSON does not yet show leaves the date unresolved
-  and retried until the sources agree; a row removed at NBG is removed
-  from the mirror; an empty export fails the run instead of removing rows;
-  after a ten-day interruption the span does not cross a date no run
-  verified.
+  nothing; a duplicate event, one more than a minute late or one
+  scheduled more than a minute ahead does nothing; a CSV showing a row
+  the JSON does not yet show leaves the date unresolved and retried until
+  the sources agree; a row removed at NBG is removed from the mirror; an
+  empty export fails the run instead of removing rows; after a ten-day
+  interruption the span does not cross a date no run verified.
 - The archive rows' fill: a code that appears only in a mid-year table is
   in that year's rows; the 2006 and 2007 exports leave AZN out; the
   archive rows' start moves only over a whole range (a calendar year, or

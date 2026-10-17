@@ -87,13 +87,12 @@ NBG sets rates on business days around 17:00 Tbilisi time, valid from the
 next calendar day, so a Sunday, a Monday or the day after a public
 holiday keeps the last rate set, and the answer says which day's rate
 applies. A date NBG has not published yet is an error, never a guess.
-Every rate is per one unit, and the rates for a date also show NBG's
-quoted form (1.6452 GEL per 100 JPY is 0.016452 GEL per yen); converted
-amounts are computed exactly from NBG's figures and rounded half up to two
-decimals, the way a ledger posts them.
+Every rate is per one unit; converted amounts are computed exactly from
+NBG's figures and rounded half up to two decimals.
 
-It never records the amounts, dates or currencies asked. It keeps two
-logs for 30 days
+It never records the amounts or currencies asked; for a past date it
+keeps a copy of NBG's table the first time anyone asks, and the copy
+does not say who asked or when. It keeps two logs for 30 days
 (which tool was called from which client and whether NBG answered, and
 the gateway's access log), used only to keep the service running, to see
 which clients use it and to investigate errors or abuse; they are not
@@ -265,8 +264,9 @@ quoted form (1.6452 GEL per 100 JPY is 0.016452 GEL per yen); converted
 amounts are computed exactly from NBG's figures and rounded half up to two
 decimals, the way a ledger posts them.
 
-The connector never records the amounts, dates or currencies you ask
-about. It keeps two logs for 30 days:
+The connector never records the amounts or currencies you ask about. For
+a past date it keeps a copy of NBG's table the first time anyone asks;
+the copy does not say who asked or when. It keeps two logs for 30 days:
 which tool was called from which client and whether NBG answered, and
 the gateway's access log, with the time, path, status, and the caller's
 IP address and user agent. For ChatGPT, the caller is OpenAI's server.
