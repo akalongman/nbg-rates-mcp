@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.7.0 - 2026-10-18
+
+Added: the hosted endpoint can answer from a mirror of NBG's data in DynamoDB, named by `NBG_RATES_MIRROR_TABLE`. A scheduled sync in the same function keeps the recent tables and the whole archive's CSV rows equal to NBG (hourly, and every minute from 17:00 on weekdays until the next day's table settles), and the first request for a past date keeps a copy of that date's table once it matches the rows. When the mirror is out of date or lacks a date, requests ask NBG as before, and during an NBG outage they get the mirror's rate. Without the variable nothing changes, and local installs never use it.
+
+Changed: the privacy text says that the hosted copy keeps NBG's table for a past date the first time anyone asks, without noting who asked or when.
+
 ## 0.6.4 - 2026-10-16
 
 Fixed: the server declares that its tools, prompts and resources do not change during a connection (`listChanged: false`). It declared that they could, so a client on the 2026-07-28 protocol (Claude Code 2.1.300 and later) opened a `subscriptions/listen` stream that never ended: on the hosted endpoint that request stopped the Lambda process and API Gateway answered it and each retry with 500, and `--http` held it open. A listen is now acknowledged with no notification types and closed at once, and Claude Code no longer opens one.
