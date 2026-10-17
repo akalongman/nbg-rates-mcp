@@ -26,6 +26,7 @@ import type { NbgDay } from '../core/nbg-schema.js';
 import { err, ok, type RatesError } from '../core/types.js';
 import type { StoredRows } from './mirror-store.js';
 import type { NbgClient } from './nbg-client.js';
+import type { SyncLogLine } from './sync.js';
 import { runArchiveFill, runDailyRefetch, runRecheckSlice } from './sync-archive.js';
 import { createSyncContext, type SyncContext } from './sync-publication.js';
 
@@ -113,6 +114,26 @@ function failingDays(
         },
         fetchRange: (codes, start, end) => harness.fake.client.fetchRange(codes, start, end),
     };
+}
+
+/** `harness.fake`, except that it answers each CSV request starting on `start` with `error`. */
+function failingRanges(harness: Harness, start: string, error: RatesError): NbgClient {
+    return {
+        fetchDay: (day, language) => harness.fake.client.fetchDay(day, language),
+        async fetchRange(codes, from, to) {
+            const answer = await harness.fake.client.fetchRange(codes, from, to);
+            return from === start ? err(error) : answer;
+        },
+    };
+}
+
+/**
+ * A run's remaining time: enough for an NBG request until the run has made `requests` of them, then 15,000 ms, which
+ * covers a store operation and the log line but no request. Call it just before the run.
+ */
+function stopsAfter(harness: Harness, requests: number): () => number {
+    const before = harness.fake.requests.length;
+    return () => (harness.fake.requests.length - before >= requests ? 15_000 : 25_000);
 }
 
 /** A span from 2026-09-01 holding SEPTEMBER and OCTOBER as NBG holds them, with the 2026-10-08 refetch done. */
@@ -606,6 +627,7 @@ describe("runArchiveFill: the archive rows' fill", () => {
                 checked: true,
                 nbgRequests: 26,
                 span: '2026-10-01..2026-10-09',
+                rowsStart: '2025-01-01',
             }),
         );
         // XYZ is in the table in force on 2025-07-01 alone, so only 2025's CSV names it.
@@ -730,42 +752,143 @@ describe("runArchiveFill: the archive rows' fill", () => {
         ]);
     });
 
-    it("writes none of 2025's rows when the deadline comes after its month tables, and the next run fills it", async () => {
+    it("keeps 2025's complete samples when the deadline refuses its CSV, and the next run's only fill request is the CSV", async () => {
         const harness = await beforeFill(BEFORE_SPAN);
         const mark = harness.mark();
         // The check's CSV, 2026's ten tables and CSV, and 2025's thirteen tables leave too little time for its CSV.
-        expect(
-            await harness.run('2026-10-08T10:00', {
-                remainingMs: () => (harness.fake.requests.length - mark.requests >= 25 ? 15_000 : 25_000),
-            }),
-        ).toMatchObject({ syncResult: 'ok', syncDetail: 'deadline', checked: true, nbgRequests: 25 });
+        expect(await harness.run('2026-10-08T10:00', { remainingMs: stopsAfter(harness, 25) })).toMatchObject({
+            syncResult: 'ok',
+            syncDetail: 'deadline',
+            checked: true,
+            nbgRequests: 25,
+        });
         expect(harness.since(mark).requests.slice(-2)).toEqual(['day:en:2025-12-01', 'day:en:2025-12-31']);
         expect(await harness.store.readRowsBetween(date('2025-01-01'), date('2025-12-31'), SIGNAL)).toEqual({
             ok: true,
             value: [],
         });
-        expect((await harness.state()).rowsStart).toBe('2026-01-01');
+        const stopped = await harness.state();
+        expect(stopped.rowsStart).toBe('2026-01-01');
+        expect(stopped.fill).toEqual({
+            rangeEnd: '2025-12-31',
+            sampledThrough: '2025-12-31',
+            codes: ['EUR', 'USD', 'XYZ'],
+        });
 
+        // The next run may ask the check's CSV and one more: the fill's CSV, with no table asked again.
+        const next = harness.mark();
+        expect(await harness.run('2026-10-08T11:00', { remainingMs: stopsAfter(harness, 2) })).toEqual(
+            line({
+                time: '2026-10-08T07:00:02.000Z',
+                scheduledTime: '2026-10-08T07:00:00.000Z',
+                syncDetail: 'deadline',
+                checked: true,
+                nbgRequests: 2,
+                span: '2026-10-01..2026-10-09',
+                rowsStart: '2025-01-01',
+            }),
+        );
+        expect(harness.since(next).requests).toEqual([CHECK_CSV, 'range:EUR,USD,XYZ:2025-01-01:2025-12-31']);
+        expect(await harness.store.readRowsBetween(date('2025-01-01'), date('2025-12-31'), SIGNAL)).toEqual({
+            ok: true,
+            value: archived(BEFORE_SPAN.slice(1, 4), at('2026-10-08T11:00:02')),
+        });
+        const filled = await harness.state();
+        expect(filled.rowsStart).toBe('2025-01-01');
+        expect(filled.fill).toBeUndefined();
+    });
+
+    it('fills 2025 over three runs that may each ask five of its requests, asking each sample and the CSV once', async () => {
+        const harness = await beforeFill(BEFORE_SPAN, { rowsStart: date('2026-01-01') });
+        const mark = harness.mark();
+        const logged = harness.lines.length;
+        for (let hour = 10; hour < 15 && (await harness.state()).rowsStart !== '2025-01-01'; hour += 1) {
+            // The check's CSV, then five of the fill's requests.
+            await harness.run(`2026-10-08T${hour}:00`, { remainingMs: stopsAfter(harness, 6) });
+        }
+        // XYZ is quoted from 2025-06-02, so the second run's 2025-07-01 table adds it to the first run's codes.
+        expect(harness.since(mark).requests).toEqual([
+            CHECK_CSV,
+            ...monthTables(2025, 5),
+            CHECK_CSV,
+            ...monthTables(2025, 10).slice(5),
+            CHECK_CSV,
+            ...monthTables(2025, 12).slice(10),
+            'day:en:2025-12-31',
+            'range:EUR,USD,XYZ:2025-01-01:2025-12-31',
+            'day:en:2024-01-01',
+        ]);
+        const stoppedAt = (utcHour: string, rowsStart: string): SyncLogLine =>
+            line({
+                time: `2026-10-08T${utcHour}:00:02.000Z`,
+                scheduledTime: `2026-10-08T${utcHour}:00:00.000Z`,
+                syncDetail: 'deadline',
+                checked: true,
+                nbgRequests: 6,
+                span: '2026-10-01..2026-10-09',
+                rowsStart,
+            });
+        expect(harness.lines.slice(logged)).toEqual([
+            stoppedAt('06', '2026-01-01'),
+            stoppedAt('07', '2026-01-01'),
+            stoppedAt('08', '2025-01-01'),
+        ]);
+        expect(await harness.store.readRowsBetween(date('2025-01-01'), date('2025-12-31'), SIGNAL)).toEqual({
+            ok: true,
+            value: archived(BEFORE_SPAN.slice(1, 4), at('2026-10-08T12:00:02')),
+        });
+        // 2025's progress is gone with its rows written; the third run's fifth request began 2024's.
+        const filled = await harness.state();
+        expect(filled.rowsStart).toBe('2025-01-01');
+        expect(filled.fill).toEqual({ rangeEnd: '2024-12-31', sampledThrough: '2024-01-01', codes: ['EUR', 'USD'] });
+    });
+
+    it('keeps the samples to 2025-04-01 when the deadline stops it, and the next run asks from 2025-05-01 with their codes', async () => {
+        // QQQ is quoted from 2025-03-01 to 2025-03-16: only the 2025-03-01 sample sees it.
+        const march = [
+            publication(syntheticTable('2025-03-01', { EUR: 2.9911, QQQ: 0.4321, USD: 2.7022 })),
+            publication(syntheticTable('2025-03-17', { EUR: 2.9922, USD: 2.7033 })),
+        ];
+        const harness = await beforeFill([...BEFORE_SPAN, ...march], { rowsStart: date('2026-01-01') });
+        const mark = harness.mark();
+        expect(await harness.run('2026-10-08T10:00', { remainingMs: stopsAfter(harness, 5) })).toMatchObject({
+            syncResult: 'ok',
+            syncDetail: 'deadline',
+            nbgRequests: 5,
+        });
+        expect(harness.since(mark).requests).toEqual([CHECK_CSV, ...monthTables(2025, 4)]);
+        expect((await harness.state()).fill).toEqual({
+            rangeEnd: '2025-12-31',
+            sampledThrough: '2025-04-01',
+            codes: ['EUR', 'QQQ', 'USD'],
+        });
+
+        // No table the next run asks quotes QQQ; the stored codes still name it in the CSV.
         const next = harness.mark();
         expect(await harness.run('2026-10-08T11:00')).toMatchObject({
             syncResult: 'ok',
             syncDetail: null,
-            nbgRequests: 29,
+            nbgRequests: 25,
         });
         expect(harness.since(next).requests).toEqual([
             CHECK_CSV,
-            ...monthTables(2025, 12),
+            ...monthTables(2025, 12).slice(4),
             'day:en:2025-12-31',
-            'range:EUR,USD,XYZ:2025-01-01:2025-12-31',
+            'range:EUR,QQQ,USD,XYZ:2025-01-01:2025-12-31',
             ...monthTables(2024, 12),
             'day:en:2024-12-31',
             'range:EUR,USD:2024-01-01:2024-12-31',
         ]);
-        expect(await harness.store.readRowsBetween(date('2024-01-01'), date('2025-12-31'), SIGNAL)).toEqual({
+        expect(await harness.store.readRowsBetween(date('2025-01-01'), date('2025-12-31'), SIGNAL)).toEqual({
             ok: true,
-            value: archived(BEFORE_SPAN.slice(0, 4), at('2026-10-08T11:00:02')),
+            value: archived(
+                [...BEFORE_SPAN.slice(1, 2), ...march, ...BEFORE_SPAN.slice(2, 4)],
+                at('2026-10-08T11:00:02'),
+            ),
         });
-        expect((await harness.state()).rowsStart).toBe('2024-01-01');
+        const filled = await harness.state();
+        expect(filled.rowsStart).toBe('2024-01-01');
+        expect(filled.fill).toBeUndefined();
     });
 
     it("writes none of a year's rows when the time left after its CSV does not cover the write", async () => {
@@ -796,9 +919,91 @@ describe("runArchiveFill: the archive rows' fill", () => {
         expect((await harness.state()).rowsStart).toBe('2026-01-01');
     });
 
+    it('keeps the two samples a run took before NBG failed the third, and fails the run with that kind', async () => {
+        const harness = await beforeFill(BEFORE_SPAN, { rowsStart: date('2026-01-01') });
+        const mark = harness.mark();
+        expect(
+            await harness.run('2026-10-08T10:00', { client: failingDays(harness, ['2025-03-01'], UNAVAILABLE) }),
+        ).toMatchObject({ syncResult: 'failed', syncDetail: 'upstream_unavailable', checked: true, nbgRequests: 4 });
+        expect(harness.since(mark).requests).toEqual([CHECK_CSV, ...monthTables(2025, 3)]);
+        // The claim, the check's fresh-until, the slice, then the fill's progress.
+        expect(harness.since(mark).writes).toEqual(
+            Array.from({ length: 4 }, () => ({ operation: 'state', key: 'state/state' })),
+        );
+        expect((await harness.state()).fill).toEqual({
+            rangeEnd: '2025-12-31',
+            sampledThrough: '2025-02-01',
+            codes: ['EUR', 'USD'],
+        });
+
+        const next = harness.mark();
+        await harness.run('2026-10-08T11:00', { remainingMs: stopsAfter(harness, 2) });
+        expect(harness.since(next).requests).toEqual([CHECK_CSV, 'day:en:2025-03-01']);
+    });
+
+    it('fails the run with the store failure when the progress write after a failed sample fails', async () => {
+        const harness = await beforeFill(BEFORE_SPAN, { rowsStart: date('2026-01-01') });
+        const unavailable = failingDays(harness, ['2025-03-01'], UNAVAILABLE);
+        const client: NbgClient = {
+            fetchDay(day, language) {
+                if (day === '2025-03-01') {
+                    harness.store.failWith('throttled');
+                }
+                return unavailable.fetchDay(day, language);
+            },
+            fetchRange: (codes, start, end) => unavailable.fetchRange(codes, start, end),
+        };
+        expect(await harness.run('2026-10-08T10:00', { client })).toMatchObject({
+            syncResult: 'failed',
+            syncDetail: 'store_failed',
+            nbgRequests: 4,
+        });
+        harness.store.failWith(undefined);
+        expect((await harness.state()).fill).toBeUndefined();
+    });
+
+    it("keeps 2025's complete samples when NBG fails its CSV, and the next run asks the CSV and no table of 2025", async () => {
+        const harness = await beforeFill(BEFORE_SPAN, { rowsStart: date('2026-01-01') });
+        const mark = harness.mark();
+        expect(
+            await harness.run('2026-10-08T10:00', { client: failingRanges(harness, '2025-01-01', UNAVAILABLE) }),
+        ).toMatchObject({ syncResult: 'failed', syncDetail: 'upstream_unavailable', checked: true, nbgRequests: 15 });
+        expect(harness.since(mark).requests.at(-1)).toBe('range:EUR,USD,XYZ:2025-01-01:2025-12-31');
+        expect((await harness.state()).fill).toEqual({
+            rangeEnd: '2025-12-31',
+            sampledThrough: '2025-12-31',
+            codes: ['EUR', 'USD', 'XYZ'],
+        });
+
+        const next = harness.mark();
+        expect(await harness.run('2026-10-08T11:00')).toMatchObject({ syncResult: 'ok', syncDetail: null });
+        expect(harness.since(next).requests).toEqual([
+            CHECK_CSV,
+            'range:EUR,USD,XYZ:2025-01-01:2025-12-31',
+            ...monthTables(2024, 12),
+            'day:en:2024-12-31',
+            'range:EUR,USD:2024-01-01:2024-12-31',
+        ]);
+        // The claim and the check's fresh-until; 2025's rows before the rows' start moves over them, then 2024's.
+        expect(harness.since(next).writes).toEqual([
+            { operation: 'state', key: 'state/state' },
+            { operation: 'state', key: 'state/state' },
+            { operation: 'archive', key: 'rows/2025-01-01' },
+            { operation: 'archive', key: 'rows/2025-06-02' },
+            { operation: 'archive', key: 'rows/2025-08-01' },
+            { operation: 'state', key: 'state/state' },
+            { operation: 'archive', key: 'rows/2024-01-01' },
+            { operation: 'state', key: 'state/state' },
+        ]);
+        const filled = await harness.state();
+        expect(filled.rowsStart).toBe('2024-01-01');
+        expect(filled.fill).toBeUndefined();
+    });
+
     it('fails a year whose CSV lists no row as empty_export, writing nothing and leaving the rows start', async () => {
-        // The table valid from 2025-12-31 is in force all through 2026 before the span, so 2026's export is empty.
+        // The table in force on 2026-09-30 is valid from 2026-05-04, inside 2026, but NBG's CSV lists none of its rows.
         const harness = await beforeFill([publication(syntheticTable('2025-12-31', { EUR: 3.0345, USD: 2.7222 }))]);
+        harness.fake.publishJson(publication(syntheticTable('2026-05-04', { EUR: 3.0456, USD: 2.7333 })));
         const mark = harness.mark();
         expect(await harness.run('2026-10-08T10:00')).toMatchObject({
             syncResult: 'failed',
@@ -808,7 +1013,79 @@ describe("runArchiveFill: the archive rows' fill", () => {
         });
         expect(harness.since(mark).requests.at(-1)).toBe('range:EUR,USD:2026-01-01:2026-09-30');
         expect(harness.since(mark).writes.map((write) => write.operation)).not.toContain('archive');
-        expect((await harness.state()).rowsStart).toBeUndefined();
+        const failed = await harness.state();
+        expect(failed.rowsStart).toBeUndefined();
+        expect(failed.fill).toBeUndefined();
+    });
+
+    it("moves the rows start over 2026-01-01 to 2026-01-08 with no CSV when a span starts at the year's first publication", async () => {
+        const harness = await beforeFill(
+            [
+                publication(syntheticTable('2025-01-01', { EUR: 2.9876, USD: 2.7012 })),
+                publication(syntheticTable('2025-12-31', { EUR: 3.0345, USD: 2.7222 })),
+                publication(syntheticTable('2026-01-09', { EUR: 3.0456, USD: 2.7333 })),
+            ],
+            { span: { start: date('2026-01-09'), end: date('2026-10-09') } },
+        );
+        const mark = harness.mark();
+        expect(await harness.run('2026-10-08T10:00')).toEqual(
+            line({
+                time: '2026-10-08T06:00:02.000Z',
+                scheduledTime: '2026-10-08T06:00:00.000Z',
+                checked: true,
+                nbgRequests: 17,
+                span: '2026-01-09..2026-10-09',
+                rowsStart: '2025-01-01',
+            }),
+        );
+        // The table in force on 2026-01-08 is valid from 2025-12-31: no publication lies in the range.
+        expect(harness.since(mark).requests).toEqual([
+            CHECK_CSV,
+            'day:en:2026-01-01',
+            'day:en:2026-01-08',
+            ...monthTables(2025, 12),
+            'day:en:2025-12-31',
+            'range:EUR,USD:2025-01-01:2025-12-31',
+        ]);
+        // The claim, the check's fresh-until and the slice; the rows' start over the empty range; then 2025.
+        expect(harness.since(mark).writes).toEqual([
+            { operation: 'state', key: 'state/state' },
+            { operation: 'state', key: 'state/state' },
+            { operation: 'state', key: 'state/state' },
+            { operation: 'state', key: 'state/state' },
+            { operation: 'archive', key: 'rows/2025-01-01' },
+            { operation: 'archive', key: 'rows/2025-12-31' },
+            { operation: 'state', key: 'state/state' },
+        ]);
+        const filled = await harness.state();
+        expect(filled.rowsStart).toBe('2025-01-01');
+        expect(filled.fill).toBeUndefined();
+    });
+
+    it('keeps no progress for a range with no publication when the deadline refuses its rows start move', async () => {
+        const harness = await beforeFill([publication(syntheticTable('2025-12-31', { EUR: 3.0345, USD: 2.7222 }))], {
+            span: { start: date('2026-01-09'), end: date('2026-10-09') },
+        });
+        const mark = harness.mark();
+        // After the check's CSV and both samples, 2,400 ms do not cover a store operation and the log line.
+        expect(
+            await harness.run('2026-10-08T10:00', {
+                remainingMs: () => (harness.fake.requests.length - mark.requests >= 3 ? 2_400 : 25_000),
+            }),
+        ).toMatchObject({ syncResult: 'ok', syncDetail: 'deadline', nbgRequests: 3 });
+        expect(harness.since(mark).requests).toEqual([CHECK_CSV, 'day:en:2026-01-01', 'day:en:2026-01-08']);
+        const stopped = await harness.state();
+        expect(stopped.rowsStart).toBeUndefined();
+        expect(stopped.fill).toBeUndefined();
+
+        const next = harness.mark();
+        expect(await harness.run('2026-10-08T11:00', { remainingMs: stopsAfter(harness, 3) })).toMatchObject({
+            syncResult: 'ok',
+            syncDetail: 'deadline',
+            nbgRequests: 3,
+        });
+        expect(harness.since(next).requests).toEqual([CHECK_CSV, 'day:en:2026-01-01', 'day:en:2026-01-08']);
+        expect((await harness.state()).rowsStart).toBe('2026-01-01');
     });
 
     it('fills 1995-10-14 to 1995-12-31 from rows starting 1996-01-01 and is complete, after which it asks nothing', async () => {

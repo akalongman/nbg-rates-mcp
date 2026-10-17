@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { publication, tableFixture } from '../../test/helpers/publications.js';
+import { publication, syntheticTable, tableFixture } from '../../test/helpers/publications.js';
 import {
     at,
     bootstrapped,
@@ -166,6 +166,7 @@ describe('runSync: the hourly check', () => {
                 checked: true,
                 nbgRequests: 1,
                 span: '2026-10-01..2026-10-09',
+                rowsStart: '1995-10-14',
             }),
         );
         expect(harness.since(mark).requests).toEqual([`range:${CODES}:2026-10-01:2026-10-09`]);
@@ -392,6 +393,7 @@ describe('runSync: the hourly check', () => {
                 committed: 12,
                 nbgRequests: 27,
                 span: '2026-10-01..2026-10-13',
+                rowsStart: '1995-10-14',
             }),
         );
         expect(harness.since(mark).requests).toEqual([
@@ -657,6 +659,54 @@ describe('runSync: unresolved dates outside the check', () => {
         expect(harness.since(mark).writes.map((write) => write.operation)).toEqual(['state', 'state']);
         expect(await held(harness.store, '2026-09-28')).toBeUndefined();
         expect((await harness.state()).unresolved).toEqual(['2026-09-28']);
+    });
+});
+
+describe('runSync: the log line', () => {
+    it("shows the rows' start the run last saw: 2025-01-01 once it has filled 2025", async () => {
+        const harness = await setUp({
+            nbg: [publication(syntheticTable('2025-01-01', { EUR: 2.9876, USD: 2.7012 })), ...OCTOBER],
+            seed: {
+                publications: OCTOBER,
+                state: {
+                    span: { start: date('2026-10-01'), end: date('2026-10-09') },
+                    rowsStart: date('2026-01-01'),
+                    refetch: { day: date('2026-10-08') },
+                },
+            },
+        });
+        const mark = harness.mark();
+        // The check's CSV, then 2025's thirteen tables and CSV; no time is left for 2024's first table.
+        const result = await harness.run('2026-10-08T10:00', {
+            remainingMs: () => (harness.fake.requests.length - mark.requests >= 15 ? 15_000 : 25_000),
+        });
+        expect(result).toEqual(
+            line({
+                time: '2026-10-08T06:00:02.000Z',
+                scheduledTime: '2026-10-08T06:00:00.000Z',
+                syncDetail: 'deadline',
+                checked: true,
+                nbgRequests: 15,
+                span: '2026-10-01..2026-10-09',
+                rowsStart: '2025-01-01',
+            }),
+        );
+    });
+
+    it("shows no rows' start, as no span, for a run that sees no span", async () => {
+        const harness = await setUp();
+        harness.fake.failWith(UNAVAILABLE);
+        expect(await harness.run('2026-10-08T10:00')).toEqual(
+            line({
+                time: '2026-10-08T06:00:02.000Z',
+                scheduledTime: '2026-10-08T06:00:00.000Z',
+                syncResult: 'failed',
+                syncDetail: 'upstream_unavailable',
+                nbgRequests: 1,
+                span: null,
+                rowsStart: null,
+            }),
+        );
     });
 });
 

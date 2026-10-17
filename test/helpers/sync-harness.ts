@@ -274,6 +274,7 @@ export function line(fields: Partial<SyncLogLine> & Pick<SyncLogLine, 'time' | '
         committed: 0,
         nbgRequests: 0,
         span: null,
+        rowsStart: null,
         durationMs: 0,
         ...fields,
     };

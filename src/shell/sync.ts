@@ -25,6 +25,8 @@ export interface SyncLogLine {
     readonly nbgRequests: number;
     /** 'start..end', or null without a span. */
     readonly span: string | null;
+    /** The first date from which the archive rows are stored, YYYY-MM-DD, or null when none is recorded. */
+    readonly rowsStart: string | null;
     readonly durationMs: number;
 }
 
@@ -71,11 +73,15 @@ export function notConfiguredLine(event: SyncEvent, now: Date): SyncLogLine {
         committed: 0,
         nbgRequests: 0,
         span: null,
+        rowsStart: null,
         durationMs: 0,
     };
 }
 
-/** The store, with each state the run reads or writes handed to `seen`, so the log line can name the span. */
+/**
+ * The store, with each state the run reads or writes handed to `seen`, so the log line can name the span and the rows'
+ * start.
+ */
 function watchedStore(store: MirrorStore, seen: (state: MirrorState) => void): MirrorStore {
     return {
         async readState(signal) {
@@ -187,6 +193,7 @@ export async function runSync(event: SyncEvent, remainingMs: () => number, deps:
             committed: context?.counts.committed ?? 0,
             nbgRequests: context?.counts.nbgRequests ?? 0,
             span: spanText(seen.state),
+            rowsStart: seen.state?.rowsStart ?? null,
             durationMs: now.getTime() - startedAt.getTime(),
         };
         deps.log(line);

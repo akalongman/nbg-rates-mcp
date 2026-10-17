@@ -442,8 +442,13 @@ that bound on 2026-10-17.
   the span's start), in English, give the year's codes, then one CSV
   export of those codes covers the year (AZN left out for 2006 and 2007).
   That is about 430 requests in all, at most two years per hourly run
-  after its check, so the fill ends within about a day and adds at most
-  about 28 requests to an hour. A currency quoted for less than a month
+  after its check. A run takes as many of a year's samples as its
+  deadline allows and keeps them, with their codes, in the state record,
+  so the next run goes on from the next sample and the CSV export goes
+  once the samples are complete: a slow NBG slows the fill but never
+  stalls it. Within the 29 s limit a run fits about one year's requests,
+  so the fill ends within about two days and adds at most about 28
+  requests to an hour. A currency quoted for less than a month
   between two samples would be missed; none is known. Until a year is
   filled, history ranges reaching into it take the live path (rule 2). No
   day table is fetched for the archive in advance (see "Anti-goals").

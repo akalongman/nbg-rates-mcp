@@ -1,5 +1,5 @@
 import { addDays, NBG_ARCHIVE_START, parseCalendarDate } from '../core/dates.js';
-import { extendRowsStart, inSpan, type MirrorState } from '../core/mirror.js';
+import { extendRowsStart, inSpan, recordFillProgress, type FillProgress, type MirrorState } from '../core/mirror.js';
 import {
     changedPublications,
     csvRequestCodes,
@@ -7,6 +7,7 @@ import {
     groupByValidFrom,
     sameTable,
     tableCodes,
+    tableValidFrom,
 } from '../core/mirror-publication.js';
 import type { NbgCsvRow } from '../core/nbg-csv.js';
 import {
@@ -366,27 +367,76 @@ function fillSamples(range: DateRange): ReadonlyArray<CalendarDate> {
 }
 
 /**
+ * Ends a range's fill early with `stopped` (the deadline, or a failure), first recording the samples this run took
+ * through `sampledThrough` with the codes so far, unless it took none. A failed write returns its own failure.
+ */
+async function stopFill(
+    context: SyncContext,
+    range: DateRange,
+    sampledThrough: CalendarDate | undefined,
+    codes: ReadonlySet<string>,
+    stopped: Result<'deadline', SyncFailure>,
+): Promise<Result<'deadline', SyncFailure>> {
+    if (sampledThrough === undefined) {
+        return stopped;
+    }
+    const progress: FillProgress = { rangeEnd: range.end, sampledThrough, codes: [...codes] };
+    const recorded = await applyToState(context, (current) => recordFillProgress(current, progress));
+    return recorded.ok ? stopped : recorded;
+}
+
+/** Moves the rows' start to the range's start, dropping the fill's progress for it. */
+async function moveRowsStart(
+    context: SyncContext,
+    range: DateRange,
+): Promise<Result<'done' | 'deadline', SyncFailure>> {
+    const moved = await applyToState(context, (current) => extendRowsStart(current, range.start));
+    if (!moved.ok) {
+        return moved;
+    }
+    return ok(moved.value.kind === 'deadline' ? 'deadline' : 'done');
+}
+
+/**
  * The archive rows of a range inside one year. The English tables of its samples give the codes (their union), one
  * CSV export over the range names them (AZN left out inside its filter gap), and one write stores an item per
- * publication, observed before the CSV request; then the rows' start moves to the range's start. An empty export
- * fails as empty_export. A failure or the deadline anywhere before the state write leaves the rows' start as it was.
+ * publication, observed before the CSV request; then the rows' start moves to the range's start. The samples resume
+ * after `stored` (the claimed state's progress) when it is this range's, with its codes; a sample or the CSV that
+ * meets the deadline or fails records the samples this run took (stopFill). A range whose last day's table is valid
+ * from before its start holds no publication: the rows' start moves over it with no CSV, unless the samples came
+ * complete from `stored`, which only a range holding a publication leaves. An empty export fails as empty_export. A
+ * failure or the deadline anywhere before the state write leaves the rows' start as it was.
  */
-async function fillYear(context: SyncContext, range: DateRange): Promise<Result<'done' | 'deadline', SyncFailure>> {
-    const codes = new Set<string>();
+async function fillYear(
+    context: SyncContext,
+    range: DateRange,
+    stored: FillProgress | undefined,
+): Promise<Result<'done' | 'deadline', SyncFailure>> {
+    const resumed = stored?.rangeEnd === range.end ? stored : undefined;
+    const codes = new Set<string>(resumed?.codes);
+    /** The last sample this run took. */
+    let sampledThrough: CalendarDate | undefined;
     for (const sample of fillSamples(range)) {
+        if (resumed !== undefined && sample <= resumed.sampledThrough) {
+            continue;
+        }
         const table = await context.fetchDay(sample, 'en');
         if (table.kind !== 'ok') {
-            return stoppedBy(table);
+            return stopFill(context, range, sampledThrough, codes, stoppedBy(table));
         }
         for (const code of tableCodes(table.value)) {
             codes.add(code);
+        }
+        sampledThrough = sample;
+        if (sample === range.end && tableValidFrom(table.value) < range.start) {
+            return moveRowsStart(context, range);
         }
     }
     const observedAt = context.now().getTime();
     const requested = csvRequestCodes([...codes].sort(), range.start, range.end);
     const exported = await context.fetchRange(requested, range.start, range.end);
     if (exported.kind !== 'ok') {
-        return stoppedBy(exported);
+        return stopFill(context, range, sampledThrough, codes, stoppedBy(exported));
     }
     if (exported.value.length === 0) {
         return err({ kind: 'empty_export' });
@@ -402,20 +452,17 @@ async function fillYear(context: SyncContext, range: DateRange): Promise<Result<
     if (!written.ok) {
         return written;
     }
-    const moved = await applyToState(context, (current) => extendRowsStart(current, range.start));
-    if (!moved.ok) {
-        return moved;
-    }
-    return ok(moved.value.kind === 'deadline' ? 'deadline' : 'done');
+    return moveRowsStart(context, range);
 }
 
 /**
  * The archive rows' fill, from `state` as the run claimed it: up to ARCHIVE_YEARS_PER_RUN years, newest first, each
- * by fillYear. The first year's range ends the day before the rows' start (the span's start without one), each later
- * one the day before the previous one's start, and each starts at the later of its 1 January and NBG_ARCHIVE_START.
- * Complete once the rows start at NBG_ARCHIVE_START, which asks and writes nothing when the claimed state already
- * says so. Without a span there is nothing to fill back from: progress, with nothing asked or written. The fill never
- * moves fresh-until and adds nothing to the run's committed count.
+ * by fillYear, the first resuming from the claimed state's progress. The first year's range ends the day before the
+ * rows' start (the span's start without one), each later one the day before the previous one's start, and each starts
+ * at the later of its 1 January and NBG_ARCHIVE_START. Complete once the rows start at NBG_ARCHIVE_START, which asks
+ * and writes nothing when the claimed state already says so. Without a span there is nothing to fill back from:
+ * progress, with nothing asked or written. The fill never moves fresh-until and adds nothing to the run's committed
+ * count.
  */
 export async function runArchiveFill(
     context: SyncContext,
@@ -429,7 +476,7 @@ export async function runArchiveFill(
     for (let filled = 0; filled < ARCHIVE_YEARS_PER_RUN && rowsStart > ARCHIVE_START; filled += 1) {
         const end = addDays(rowsStart, -1);
         const range = { start: later(dayOfYear(yearOf(end), '01-01'), ARCHIVE_START), end };
-        const year = await fillYear(context, range);
+        const year = await fillYear(context, range, filled === 0 ? state.fill : undefined);
         if (!year.ok) {
             return year;
         }

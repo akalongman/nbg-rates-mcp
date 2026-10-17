@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import { parseCurrencyCode } from './currency-code.js';
 import { NBG_ARCHIVE_START, parseCalendarDate } from './dates.js';
 import type { SyncKind } from './sync-schedule.js';
 import { err, ok, type CalendarDate, type Result } from './types.js';
@@ -17,6 +18,16 @@ export interface WindowState {
     readonly at: number;
 }
 
+/** The archive rows' fill's progress through the samples of the range it is filling, kept between runs. */
+export interface FillProgress {
+    /** The last day of the range being filled: the day before rowsStart (the span's start without one) when recorded. */
+    readonly rangeEnd: CalendarDate;
+    /** Every sample of the range on or before this date is taken; the samples are complete when it equals rangeEnd. */
+    readonly sampledThrough: CalendarDate;
+    /** The union of the taken samples' currency codes, sorted, without duplicates. */
+    readonly codes: ReadonlyArray<string>;
+}
+
 export interface MirrorState {
     readonly revision: number;
     /** The recent publications; its start never moves once set. */
@@ -29,6 +40,7 @@ export interface MirrorState {
     readonly lastRun: Readonly<Partial<Record<SyncKind, number>>>;
     readonly refetch: { readonly day?: CalendarDate; readonly cursor?: CalendarDate };
     readonly recheck: { readonly cycleStartedAt?: number; readonly lastSliceAt?: number; readonly nextYear?: number };
+    readonly fill?: FillProgress;
 }
 
 export const EMPTY_MIRROR_STATE: MirrorState = { revision: 0, unresolved: [], lastRun: {}, refetch: {}, recheck: {} };
@@ -41,6 +53,11 @@ const calendarDate = z.string().transform((value, context) => {
     }
     return parsed.value;
 });
+/** An uppercase three-letter code as parseCurrencyCode accepts it, unchanged by its normalisation. */
+const currencyCode = z.string().refine((value) => {
+    const parsed = parseCurrencyCode(value);
+    return parsed.ok && parsed.value === value;
+}, 'not a currency code');
 const epochMillis = z.int().nonnegative();
 const count = z.int().nonnegative();
 
@@ -63,6 +80,13 @@ const mirrorStateSchema = z.object({
         lastSliceAt: epochMillis.exactOptional(),
         nextYear: z.int().exactOptional(),
     }),
+    fill: z
+        .object({ rangeEnd: calendarDate, sampledThrough: calendarDate, codes: z.array(currencyCode) })
+        .refine((fill) => fill.sampledThrough <= fill.rangeEnd, {
+            message: 'after the range end',
+            path: ['sampledThrough'],
+        })
+        .exactOptional(),
 });
 
 export function parseMirrorState(json: unknown): Result<MirrorState, string> {
@@ -102,11 +126,50 @@ export function extendSpanEnd(state: MirrorState, end: CalendarDate): MirrorStat
     return { ...state, span: { start: span.start, end } };
 }
 
+/** Moves the rows' start back; the fill's progress goes with it once the new start reaches its range's end. */
 export function extendRowsStart(state: MirrorState, start: CalendarDate): MirrorState {
     if (state.rowsStart !== undefined && start >= state.rowsStart) {
         return state;
     }
-    return { ...state, rowsStart: start };
+    const { fill, ...rest } = state;
+    return fill !== undefined && start <= fill.rangeEnd
+        ? { ...rest, rowsStart: start }
+        : { ...state, rowsStart: start };
+}
+
+/** The rows from `rowsStart` cover the range ending on `rangeEnd`. */
+function isFilled(state: MirrorState, rangeEnd: CalendarDate): boolean {
+    return state.rowsStart !== undefined && state.rowsStart <= rangeEnd;
+}
+
+function sortedCodes(codes: Iterable<string>): ReadonlyArray<string> {
+    return [...new Set(codes)].sort();
+}
+
+/**
+ * Keeps the fill's progress through its range's samples. Progress for a range the rows already cover is ignored. For
+ * the stored range, only a later `sampledThrough` is taken, with the codes of both; progress for another range replaces
+ * the stored one only when that range is filled, or when none is stored. The codes are kept sorted and unique.
+ */
+export function recordFillProgress(state: MirrorState, progress: FillProgress): MirrorState {
+    if (isFilled(state, progress.rangeEnd)) {
+        return state;
+    }
+    const stored = state.fill;
+    if (stored === undefined || isFilled(state, stored.rangeEnd)) {
+        return { ...state, fill: { ...progress, codes: sortedCodes(progress.codes) } };
+    }
+    if (progress.rangeEnd !== stored.rangeEnd || progress.sampledThrough <= stored.sampledThrough) {
+        return state;
+    }
+    return {
+        ...state,
+        fill: {
+            rangeEnd: stored.rangeEnd,
+            sampledThrough: progress.sampledThrough,
+            codes: sortedCodes([...stored.codes, ...progress.codes]),
+        },
+    };
 }
 
 export function recordFreshUntil(state: MirrorState, freshUntil: number): MirrorState {

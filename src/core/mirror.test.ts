@@ -11,9 +11,11 @@ import {
     markResolved,
     markUnresolved,
     parseMirrorState,
+    recordFillProgress,
     recordFreshUntil,
     recordWindow,
     startSpan,
+    type FillProgress,
     type MirrorState,
     type WindowState,
 } from './mirror.js';
@@ -23,6 +25,10 @@ import { date } from '../../test/helpers/values.js';
 
 function windowOn(day: string, at: number): WindowState {
     return { date: date(day), committed: false, quietRuns: 0, stopped: false, at };
+}
+
+function progress(rangeEnd: string, sampledThrough: string, codes: ReadonlyArray<string>): FillProgress {
+    return { rangeEnd: date(rangeEnd), sampledThrough: date(sampledThrough), codes };
 }
 
 const spanned: MirrorState = {
@@ -93,6 +99,53 @@ describe('extendRowsStart', () => {
 
     it('sets the start when none exists', () => {
         expect(extendRowsStart(EMPTY_MIRROR_STATE, date('2026-01-01')).rowsStart).toBe('2026-01-01');
+    });
+
+    it("drops the fill's progress when the new start reaches its range's end", () => {
+        const filling: MirrorState = { ...rows, fill: progress('2025-12-31', '2025-04-01', ['EUR', 'USD']) };
+        const moved = extendRowsStart(filling, date('2025-01-01'));
+        expect(moved).toEqual({ ...EMPTY_MIRROR_STATE, rowsStart: '2025-01-01' });
+        expect('fill' in moved).toBe(false);
+    });
+
+    it("keeps the fill's progress when the new start does not reach its range's end", () => {
+        const filling: MirrorState = { ...EMPTY_MIRROR_STATE, fill: progress('2025-12-31', '2025-04-01', ['USD']) };
+        expect(extendRowsStart(filling, date('2026-01-01'))).toEqual({ ...filling, rowsStart: '2026-01-01' });
+    });
+});
+
+describe('recordFillProgress', () => {
+    // The rows start on 2026-01-01, so the fill's range is 2025-01-01 to 2025-12-31.
+    const rows: MirrorState = { ...EMPTY_MIRROR_STATE, rowsStart: date('2026-01-01') };
+    const april: MirrorState = { ...rows, fill: progress('2025-12-31', '2025-04-01', ['EUR', 'USD']) };
+
+    it('records the first progress, its codes sorted and without duplicates', () => {
+        expect(recordFillProgress(rows, progress('2025-12-31', '2025-02-01', ['USD', 'EUR', 'USD'])).fill).toEqual(
+            progress('2025-12-31', '2025-02-01', ['EUR', 'USD']),
+        );
+    });
+
+    it('takes a later sampledThrough for the same range, with the union of both codes', () => {
+        expect(recordFillProgress(april, progress('2025-12-31', '2025-07-01', ['XYZ', 'USD'])).fill).toEqual(
+            progress('2025-12-31', '2025-07-01', ['EUR', 'USD', 'XYZ']),
+        );
+    });
+
+    it('returns the input for an earlier or equal sampledThrough of the same range', () => {
+        expect(recordFillProgress(april, progress('2025-12-31', '2025-03-01', ['XYZ']))).toBe(april);
+        expect(recordFillProgress(april, progress('2025-12-31', '2025-04-01', ['XYZ']))).toBe(april);
+    });
+
+    it('returns the input for progress on a range the rows already cover', () => {
+        expect(recordFillProgress(april, progress('2026-03-31', '2026-03-01', ['EUR']))).toBe(april);
+        expect(recordFillProgress(rows, progress('2026-01-01', '2026-01-01', ['EUR']))).toBe(rows);
+    });
+
+    it("replaces a filled range's progress with another range's, and not an unfilled one's", () => {
+        const filled: MirrorState = { ...april, rowsStart: date('2025-01-01') };
+        const next = progress('2024-12-31', '2024-02-01', ['USD']);
+        expect(recordFillProgress(filled, next).fill).toEqual(next);
+        expect(recordFillProgress(april, progress('2024-12-31', '2024-12-31', ['USD']))).toBe(april);
     });
 });
 
@@ -242,8 +295,9 @@ describe('transitions', () => {
             recordWindow(spanned, windowOn('2026-10-09', 1)),
             markUnresolved(spanned, [date('2026-10-06')]),
             markResolved(spanned, [date('2026-10-05')]),
+            recordFillProgress(spanned, progress('2024-12-31', '2024-01-01', ['USD'])),
         ];
-        expect(moved.map((state) => state?.revision)).toEqual([7, 7, 7, 7, 7, 7, 7]);
+        expect(moved.map((state) => state?.revision)).toEqual([7, 7, 7, 7, 7, 7, 7, 7]);
     });
 });
 
@@ -269,6 +323,7 @@ describe('parseMirrorState', () => {
                 lastSliceAt: Date.parse('2026-10-16T05:00:00Z'),
                 nextYear: 2003,
             },
+            fill: progress('1995-12-31', '1995-11-01', ['DEM', 'USD']),
         };
         expect(parseMirrorState(JSON.parse(JSON.stringify(full)))).toEqual({ ok: true, value: full });
     });
@@ -291,5 +346,31 @@ describe('parseMirrorState', () => {
     it('rejects a date that is not a real calendar date', () => {
         const result = parseMirrorState({ ...EMPTY_MIRROR_STATE, rowsStart: '2026-02-30' });
         expect(result).toEqual({ ok: false, error: 'rowsStart: not a real YYYY-MM-DD calendar date' });
+    });
+
+    it("rejects a fill's progress sampled through a date that is not a real calendar date", () => {
+        const fill = { rangeEnd: '2025-12-31', sampledThrough: '2025-02-30', codes: ['USD'] };
+        expect(parseMirrorState({ ...EMPTY_MIRROR_STATE, fill })).toEqual({
+            ok: false,
+            error: 'fill.sampledThrough: not a real YYYY-MM-DD calendar date',
+        });
+    });
+
+    it("rejects a fill's progress sampled through a date after its range's end", () => {
+        const fill = { rangeEnd: '2025-12-31', sampledThrough: '2026-01-01', codes: ['USD'] };
+        expect(parseMirrorState({ ...EMPTY_MIRROR_STATE, fill })).toEqual({
+            ok: false,
+            error: 'fill.sampledThrough: after the range end',
+        });
+    });
+
+    it("rejects a fill's code that is not an uppercase three-letter currency code", () => {
+        for (const code of ['usd', 'EURO', '']) {
+            const fill = { rangeEnd: '2025-12-31', sampledThrough: '2025-04-01', codes: ['EUR', code] };
+            expect(parseMirrorState({ ...EMPTY_MIRROR_STATE, fill })).toEqual({
+                ok: false,
+                error: 'fill.codes.1: not a currency code',
+            });
+        }
     });
 });
