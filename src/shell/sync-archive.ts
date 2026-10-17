@@ -51,6 +51,10 @@ function later(left: CalendarDate, right: CalendarDate): CalendarDate {
     return left > right ? left : right;
 }
 
+function earlier(left: CalendarDate, right: CalendarDate): CalendarDate {
+    return left < right ? left : right;
+}
+
 function yearOf(date: CalendarDate): number {
     return Number(date.slice(0, 4));
 }
@@ -205,13 +209,13 @@ function dueSlice(context: SyncContext, state: MirrorState, lastDay: CalendarDat
     return undefined;
 }
 
-/** The year clipped to the stored rows (from `rowsStart`) and to `lastDay`, or undefined when nothing is left. */
-function sliceRange(year: number, rowsStart: CalendarDate, lastDay: CalendarDate): DateRange | undefined {
-    if (year < yearOf(rowsStart) || year > yearOf(lastDay)) {
+/** The year clipped to `[first, last]`, or undefined when nothing is left. */
+function sliceRange(year: number, first: CalendarDate, last: CalendarDate): DateRange | undefined {
+    if (year < yearOf(first) || year > yearOf(last)) {
         return undefined;
     }
-    const start = year === yearOf(rowsStart) ? rowsStart : dayOfYear(year, '01-01');
-    const end = year === yearOf(lastDay) ? lastDay : dayOfYear(year, '12-31');
+    const start = year === yearOf(first) ? first : dayOfYear(year, '01-01');
+    const end = year === yearOf(last) ? last : dayOfYear(year, '12-31');
     return start <= end ? { start, end } : undefined;
 }
 
@@ -307,9 +311,10 @@ function withSliceDone(state: MirrorState, slice: DueSlice, scheduledAt: number)
 
 /**
  * One slice of the weekly re-check, from `state` as the run claimed it (dueSlice): its year clipped to the stored rows
- * and to `today - RECHECK_LAST_DAY_OFFSET`, re-checked by recheckRange. A slice clipped to nothing asks nothing. Only a
- * slice done moves the cycle on to its next year, so one the deadline or a failure stops is done again by the next
- * hourly run.
+ * (from `rowsStart`, or the span's start without one, to the span's end) and to `today - RECHECK_LAST_DAY_OFFSET`,
+ * re-checked by recheckRange. Every date in it is thus before the span or in it; a span ending earlier leaves the dates
+ * after it to the check's catch-up. A slice clipped to nothing asks nothing. Only a slice done moves the cycle on to
+ * its next year, so one the deadline or a failure stops is done again by the next hourly run.
  */
 export async function runRecheckSlice(
     context: SyncContext,
@@ -320,7 +325,7 @@ export async function runRecheckSlice(
     if (slice === undefined || state.span === undefined) {
         return ok('not_due');
     }
-    const range = sliceRange(slice.year, state.rowsStart ?? state.span.start, lastDay);
+    const range = sliceRange(slice.year, state.rowsStart ?? state.span.start, earlier(lastDay, state.span.end));
     if (range !== undefined) {
         const checked = await recheckRange(context, state, range);
         if (!checked.ok) {

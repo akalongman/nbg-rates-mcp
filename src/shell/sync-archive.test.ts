@@ -467,6 +467,40 @@ describe('runRecheckSlice: the weekly re-check', () => {
             nextYear: 2026,
         });
     });
+
+    it("ends the slice at the claimed span's end, writing no rows for NBG's publications after it", async () => {
+        // After an outage the claimed span ends 2026-09-15, before today - 8 (2026-09-30), and NBG has published
+        // 2026-09-22 and 2026-09-29 since. Those dates are the check's catch-up, which commits them with both tables.
+        const harness = await setUp({
+            nbg: [...SEPTEMBER, ...OCTOBER],
+            seed: {
+                publications: SEPTEMBER.slice(0, 3),
+                state: { span: { start: date('2026-09-01'), end: date('2026-09-15') } },
+            },
+        });
+        const claimed = await harness.state();
+        const context = createSyncContext({
+            store: harness.store,
+            client: harness.fake.client,
+            now: () => tbilisi('2026-10-08T10:00:02'),
+            sleep: () => Promise.resolve(),
+            scheduledAt: tbilisi('2026-10-08T10:00'),
+            remainingMs: () => 25_000,
+        });
+        const mark = harness.mark();
+        expect(await runRecheckSlice(context, claimed)).toEqual({ ok: true, value: 'done' });
+        expect(harness.since(mark).writes).toEqual([{ operation: 'state', key: 'state/state' }]);
+        expect(await harness.store.readRowsBetween(date('2026-09-16'), date('2026-09-30'), SIGNAL)).toEqual({
+            ok: true,
+            value: [],
+        });
+        expect(harness.since(mark).requests).toEqual([`range:${CODES}:2026-09-01:2026-09-15`]);
+        expect((await harness.state()).recheck).toEqual({
+            cycleStartedAt: at('2026-10-08T10:00'),
+            lastSliceAt: at('2026-10-08T10:00'),
+            nextYear: 2027,
+        });
+    });
 });
 
 describe("runSync: the hourly kind's steps", () => {
