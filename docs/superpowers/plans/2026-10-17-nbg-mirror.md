@@ -1224,12 +1224,12 @@ Before editing, ask the Personal IaC sessions whether the aws root is free, and 
 
 ### B5. Switch the mirror on (spec step 3)
 
-Set `nbg_rates_mcp_mirror = true` in `variables.tf`, commit, apply. Promote the new version by the `docs/aws.md` procedure: compare `CodeSha256` of the new version with `--qualifier live` and run `update-alias` only when they match. `aws lambda get-alias --function-name nbg-rates-mcp --name live` shows that version, and `get-function-configuration --qualifier live` lists the variable. Requests still go to NBG: the mirror has no span yet.
+Set `nbg_rates_mcp_mirror = true` in `variables.tf`, commit, apply. Promote the new version by the `docs/aws.md` procedure: compare `CodeSha256` of the new version with `--qualifier live` and run `update-alias` only when they match. Before `update-alias`, invoke the new version by its number (`--qualifier <version>`, `--invocation-type RequestResponse`) with `{"nbgRatesSync":"hourly","scheduledTime":"2026-01-01T00:00:00Z"}`: the response carries no `FunctionError` and the log line is `skipped` with `syncDetail` `late`. With the variable set, the module imports `@aws-sdk/client-dynamodb` when it starts, so this proves the runtime provides it; a runtime without it fails every invocation of that version, API requests included, and the alias stays where it is. `aws lambda get-alias --function-name nbg-rates-mcp --name live` shows that version, and `get-function-configuration --qualifier live` lists the variable. Requests still go to NBG: the mirror has no span yet.
 
 ### B6. Enable the schedules (spec step 4) and prove the rest
 
 1. `nbg_rates_mcp_sync_enabled = true`, commit, apply.
-2. The first hourly run's line is `ok` with `checked: true` and a span ending tomorrow: the runtime's DynamoDB client is proven on the deployed function. Over the next day the lines show the archive fill moving the rows' start back about two years an hour until it reaches 1995-10-14.
+2. The first hourly run's line is `ok` with `checked: true` and a span ending tomorrow: the runtime's DynamoDB client is proven on the deployed function. Over the next two days or so the lines' `rowsStart` moves back about one year per hourly run until it reaches 1995-10-14: within the 29 s limit a run fits about one year's requests, and the fill resumes where the last run stopped.
 3. A hosted conversion for today succeeds, and over the next day the sync lines' `nbgRequests` add up to the budget of Task 14 plus the fill's one-off count.
 4. `aws cloudwatch set-alarm-state` sends each new alarm to `ALARM` and back to `OK`; the owner confirms the mails. Invoke the alias once with `{"foo":1}` and see `-function-errors` fire.
 5. Before any later move of the alias to a version below 0.7.0, set `nbg_rates_mcp_sync_enabled = false` and apply first.
