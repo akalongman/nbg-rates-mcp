@@ -43,6 +43,8 @@ describe('build-lambda.sh', () => {
         expect(listing.some((entry) => entry.startsWith('node_modules/@modelcontextprotocol/server/'))).toBe(true);
         expect(listing.some((entry) => entry.startsWith('node_modules/zod/'))).toBe(true);
         expect(listing.some((entry) => entry.startsWith('node_modules/vitest/'))).toBe(false);
+        // The Lambda runtime provides the DynamoDB client; the SDK is a devDependency here.
+        expect(listing.some((entry) => entry.startsWith('node_modules/@aws-sdk/'))).toBe(false);
         expect(listing.some((entry) => entry.startsWith('package/'))).toBe(false);
     }, 120_000);
 });

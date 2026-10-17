@@ -18,6 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:3.3.2@sha256:6ada631ec7aa5fc83446855eb17233e3dad184fec47477e8140c6c569cfe0c86
+        ports:
+          - 8000:8000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -28,6 +33,9 @@ jobs:
           package-manager-cache: false
       - run: npm ci --ignore-scripts
       - run: npm run format:check && npm run typecheck && npm run lint && npm test && npm run test:e2e
+      - run: npm run test:dynamodb
+        env:
+          DYNAMODB_ENDPOINT: http://localhost:8000
       - name: Check versions and the npm CLI
         run: npx tsx scripts/check-release.ts "${GITHUB_REF_NAME#v}"
       - name: Build and validate the MCPB bundle
