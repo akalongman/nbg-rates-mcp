@@ -196,10 +196,21 @@ describe('inSpan and isPastDate', () => {
 });
 
 describe('coversInterval', () => {
+    const settled: MirrorState = { ...spanned, unresolved: [] };
+
     it('covers an interval from the rows start to the end of the span', () => {
-        expect(coversInterval(spanned, date('2025-01-01'), date('2026-10-09'))).toBe(true);
-        expect(coversInterval(spanned, date('2024-12-31'), date('2026-10-09'))).toBe(false);
-        expect(coversInterval(spanned, date('2025-01-01'), date('2026-10-10'))).toBe(false);
+        expect(coversInterval(settled, date('2025-01-01'), date('2026-10-09'))).toBe(true);
+        expect(coversInterval(settled, date('2024-12-31'), date('2026-10-09'))).toBe(false);
+        expect(coversInterval(settled, date('2025-01-01'), date('2026-10-10'))).toBe(false);
+    });
+
+    it('does not cover an interval holding an unresolved date, either end included', () => {
+        // spanned holds 2026-10-05 unresolved.
+        expect(coversInterval(spanned, date('2025-01-01'), date('2026-10-09'))).toBe(false);
+        expect(coversInterval(spanned, date('2026-10-01'), date('2026-10-05'))).toBe(false);
+        expect(coversInterval(spanned, date('2026-10-05'), date('2026-10-09'))).toBe(false);
+        expect(coversInterval(spanned, date('2026-10-01'), date('2026-10-04'))).toBe(true);
+        expect(coversInterval(spanned, date('2026-10-06'), date('2026-10-09'))).toBe(true);
     });
 
     it('starts from the span start without a rows start', () => {

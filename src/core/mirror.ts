@@ -155,14 +155,19 @@ export function isPastDate(state: MirrorState, date: CalendarDate): boolean {
     return span !== undefined && rowsStart !== undefined && rowsStart <= date && date < span.start;
 }
 
+/** A date in `unresolved` lies in [start, end]: there the mirror may not hold what NBG answers now. */
+export function hasUnresolvedBetween(state: MirrorState, start: CalendarDate, end: CalendarDate): boolean {
+    return state.unresolved.some((date) => start <= date && date <= end);
+}
+
 /**
- * The rows from `start` to `end` are all stored: the interval lies between the rows' start (the span's start
- * without one) and the span's end. A start before the rows' start is covered when the rows start at
- * NBG_ARCHIVE_START, because NBG has nothing earlier.
+ * The rows from `start` to `end` are all stored and none is unresolved: the interval lies between the rows' start
+ * (the span's start without one) and the span's end, and holds no unresolved date. A start before the rows' start is
+ * covered when the rows start at NBG_ARCHIVE_START, because NBG has nothing earlier.
  */
 export function coversInterval(state: MirrorState, start: CalendarDate, end: CalendarDate): boolean {
     const { span } = state;
-    if (span === undefined || end > span.end) {
+    if (span === undefined || end > span.end || hasUnresolvedBetween(state, start, end)) {
         return false;
     }
     const first = state.rowsStart ?? span.start;
