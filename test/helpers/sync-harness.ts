@@ -201,6 +201,21 @@ export async function setUp(
     };
 }
 
+/**
+ * Makes the hourly kind's steps after its check not due on `today` (YYYY-MM-DD), for cases about the check alone:
+ * records today's refetch as done, and a re-check cycle started at today's midnight as finished, so no slice is due
+ * for the next 7 days. Writes the state once, so call it before taking a mark.
+ */
+export async function skipDailySteps(harness: Harness, today: string): Promise<void> {
+    const midnight = at(`${today}T00:00`);
+    await seedMirror(harness.store, {
+        state: {
+            refetch: { day: date(today) },
+            recheck: { cycleStartedAt: midnight, lastSliceAt: midnight, nextYear: Number(today.slice(0, 4)) + 1 },
+        },
+    });
+}
+
 /** A harness whose 10:00 run on Thursday 2026-10-08 has bootstrapped the mirror. */
 export async function bootstrapped(nbg?: ReadonlyArray<MirrorPublication>): Promise<Harness> {
     const harness = await setUp(nbg === undefined ? {} : { nbg });

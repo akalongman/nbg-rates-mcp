@@ -3,6 +3,7 @@ import { isWindowMinute, MAX_EVENT_AGE_MS, type SyncKind } from '../core/sync-sc
 import type { Result } from '../core/types.js';
 import { STORE_OPERATION_TIMEOUT_MS, type MirrorStore } from './mirror-store.js';
 import type { NbgClient } from './nbg-client.js';
+import { runDailyRefetch, runRecheckSlice, type StepOutcome } from './sync-archive.js';
 import { runHourlyCheck, runWindowCheck, stoppedWindowDate, type CheckOutcome } from './sync-check.js';
 import { createSyncContext, type SyncContext, type SyncFailure } from './sync-publication.js';
 
@@ -115,22 +116,46 @@ const CHECKS: Readonly<
     Record<SyncKind, (context: SyncContext, state: MirrorState) => Promise<Result<CheckOutcome, SyncFailure>>>
 > = { hourly: runHourlyCheck, window: runWindowCheck };
 
+type Step = (context: SyncContext, state: MirrorState) => Promise<Result<StepOutcome, SyncFailure>>;
+
+/** Each kind's steps after its check, in order, each from the state as the run claimed it. */
+const STEPS: Readonly<Record<SyncKind, ReadonlyArray<Step>>> = {
+    hourly: [runDailyRefetch, runRecheckSlice],
+    window: [],
+};
+
 /**
- * The run's outcome from its check's: a failed check fails the run. A failure while retrying unresolved dates after a
- * successful hourly check fails the run too, with `checked` as the check left it.
+ * The kind's check, then its later steps. A failed check fails the run, and a check that failed or met the deadline
+ * runs no step. Otherwise each step runs in order, whatever an earlier one returned, until one meets the deadline: an
+ * unresolved date NBG withdrew from both views fails every retry, and only a re-check slice can clear it, so a failure
+ * must not starve the later steps. The run fails with the first failure in step order (the check's retry of
+ * unresolved dates, then each step), and is otherwise ok, with 'deadline' when the check or a step met it; `checked` is
+ * as the check left it.
  */
-function runOutcome(check: Result<CheckOutcome, SyncFailure>): RunOutcome {
+async function runKind(kind: SyncKind, context: SyncContext, state: MirrorState): Promise<RunOutcome> {
+    const check = await CHECKS[kind](context, state);
     if (!check.ok) {
         return failed(check.error.kind);
     }
     const { checked, deadline, retryFailure } = check.value;
-    if (retryFailure !== undefined) {
-        return { result: 'failed', detail: retryFailure.kind, checked };
+    const failures: SyncFailure[] = retryFailure === undefined ? [] : [retryFailure];
+    let stopped = deadline;
+    for (const step of STEPS[kind]) {
+        if (stopped) {
+            break;
+        }
+        const outcome = await step(context, state);
+        if (!outcome.ok) {
+            failures.push(outcome.error);
+        } else if (outcome.value === 'deadline') {
+            stopped = true;
+        }
     }
-    if (deadline) {
-        return { result: 'ok', detail: 'deadline', checked };
+    const [failure] = failures;
+    if (failure !== undefined) {
+        return { result: 'failed', detail: failure.kind, checked };
     }
-    return { result: 'ok', detail: null, checked };
+    return { result: 'ok', detail: stopped ? 'deadline' : null, checked };
 }
 
 /**
@@ -139,7 +164,8 @@ function runOutcome(check: Result<CheckOutcome, SyncFailure>): RunOutcome {
  * claim, the fresh-until time and the span only move forward, so a future time must never reach them. A window event
  * not on a window minute is skipped as outside_window, with no store call either. Then the state is read, a window
  * event on the Tbilisi date whose window is stopped is skipped as window_stopped with no write, the run is claimed (a
- * lost claim is a duplicate), and the kind's check done. Writes the run's log line and returns it.
+ * lost claim is a duplicate), and the kind's check and later steps done (runKind). Writes the run's log line and
+ * returns it.
  */
 export async function runSync(event: SyncEvent, remainingMs: () => number, deps: SyncDeps): Promise<SyncLogLine> {
     const startedAt = deps.now();
@@ -206,5 +232,5 @@ export async function runSync(event: SyncEvent, remainingMs: () => number, deps:
     if (claim.value === undefined) {
         return finish(skipped('duplicate'), context);
     }
-    return finish(runOutcome(await CHECKS[event.kind](context, claim.value)), context);
+    return finish(await runKind(event.kind, context, claim.value), context);
 }

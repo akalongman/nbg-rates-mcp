@@ -11,6 +11,7 @@ import {
     OCTOBER,
     setUp,
     SIGNAL,
+    skipDailySteps,
     tableFrom,
     tbilisi,
     UNAVAILABLE,
@@ -154,6 +155,7 @@ describe('runSync: the hourly check', () => {
 
     it('asks one CSV and commits nothing at 11:00 when nothing changed, moving fresh-until to 12:05', async () => {
         const harness = await bootstrapped();
+        await skipDailySteps(harness, '2026-10-08');
         const mark = harness.mark();
         const result = await harness.run('2026-10-08T11:00');
         expect(result).toEqual(
@@ -175,6 +177,7 @@ describe('runSync: the hourly check', () => {
 
     it('commits a USD change to 2026-10-06 in both views with the newer observation', async () => {
         const harness = await bootstrapped();
+        await skipDailySteps(harness, '2026-10-08');
         const changed = publication(withRates(tableFixture('en', '2026-10-06'), { USD: 2.6111 }));
         harness.fake.publish(changed);
         const mark = harness.mark();
@@ -204,6 +207,7 @@ describe('runSync: the hourly check', () => {
 
     it('removes a publication NBG withdraws from both views', async () => {
         const harness = await bootstrapped();
+        await skipDailySteps(harness, '2026-10-08');
         harness.fake.withdraw(date('2026-10-06'));
         const mark = harness.mark();
         const result = await harness.run('2026-10-08T11:00');
@@ -219,6 +223,7 @@ describe('runSync: the hourly check', () => {
 
     it('leaves a date the CSV shows before the JSON unresolved, still checked, and commits it once the JSON has it', async () => {
         const harness = await bootstrapped();
+        await skipDailySteps(harness, '2026-10-08');
         // NBG's CSV lists the table valid from 2026-10-09 at 17:00:30; its JSON still answers 2026-10-07's table.
         const tomorrow = publication(tableFrom('2026-10-09', 2.6013));
         harness.fake.publishCsv(tomorrow);
@@ -275,6 +280,7 @@ describe('runSync: the hourly check', () => {
 
     it('fetches a date marked unresolved again even when the CSV matches the mirror', async () => {
         const harness = await bootstrapped();
+        await skipDailySteps(harness, '2026-10-08');
         const marked = await harness.store.updateState(
             (state) => ({ next: markUnresolved(state, [date('2026-10-06')]), outcome: undefined }),
             SIGNAL,
@@ -363,6 +369,7 @@ describe('runSync: the hourly check', () => {
 
     it('catches up ten days from the old span end, stopping the span before a date the JSON lacks', async () => {
         const harness = await bootstrapped();
+        await skipDailySteps(harness, '2026-10-20');
         const later = Array.from({ length: 13 }, (_, index) =>
             publication(tableFrom(addDays(date('2026-10-08'), index), Number((2.6 + index / 1000).toFixed(4)))),
         );
@@ -398,6 +405,7 @@ describe('runSync: the hourly check', () => {
 
     it('splits a catch-up longer than 31 days into CSV chunks, each coded from its latest stored table', async () => {
         const harness = await bootstrapped();
+        await skipDailySteps(harness, '2026-11-20');
         // AMD leaves NBG's tables from 2026-10-20, so the second chunk's request no longer names it.
         const october20 = publication(withoutCode(tableFrom('2026-10-20', 2.62), 'AMD'));
         const november10 = publication(withoutCode(tableFrom('2026-11-10', 2.63), 'AMD'));
@@ -575,6 +583,7 @@ describe('runSync: two runs at once', () => {
 describe('runSync: unresolved dates outside the check', () => {
     async function withOldUnresolved(): Promise<{ readonly harness: Harness; readonly old: MirrorPublication }> {
         const harness = await bootstrapped();
+        await skipDailySteps(harness, '2026-10-08');
         const old = publication(tableFrom('2026-09-28', 2.7123));
         harness.fake.publish(old);
         const marked = await harness.store.updateState(
@@ -622,6 +631,7 @@ describe('runSync: unresolved dates outside the check', () => {
 
     it('keeps a date the CSV still lists and the JSON lacks unresolved, asking the CSV for it alone', async () => {
         const harness = await bootstrapped();
+        await skipDailySteps(harness, '2026-10-08');
         // NBG's JSON answers the 2026-09-20 table for 2026-09-28; its CSV still lists a table valid from 2026-09-28.
         harness.fake.publishJson(publication(tableFrom('2026-09-20', 2.7001)));
         harness.fake.publishCsv(publication(tableFrom('2026-09-28', 2.7123)));

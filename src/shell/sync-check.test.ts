@@ -10,6 +10,7 @@ import {
     mirroredService,
     setUp as setUpRuns,
     SIGNAL,
+    skipDailySteps,
     tableFrom,
     tbilisi,
     UNAVAILABLE,
@@ -519,6 +520,7 @@ describe('runWindowCheck: the publication window', () => {
     it('keeps one copy of a table the 17:00 hourly and window runs both see, which a held 16:00 run changes neither', async () => {
         const harness = await setUpRuns({ nbg: WEEK });
         expect(await harness.run(`${FRIDAY}T15:00`)).toMatchObject({ syncResult: 'ok', checked: true });
+        await skipDailySteps(harness, FRIDAY);
         // NBG as it answered the 16:00 run, before the 17:00 publication; that run waits until released.
         const asAt16 = createFakeNbg(WEEK);
         const release = asAt16.hold();
