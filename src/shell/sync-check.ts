@@ -118,9 +118,28 @@ async function chunkCodes(
 }
 
 /**
+ * The export's dates for which the mirror holds no publication's table pair. With the dates whose stored rows differ
+ * from the export's, these are the ones no earlier run committed as they stand: a commit writes the rows and both
+ * tables together, after the three sources agreed.
+ */
+async function withoutTables(
+    context: SyncContext,
+    chunk: Chunk,
+    fetched: ReadonlyMap<CalendarDate, unknown>,
+): Promise<Result<ReadonlyArray<CalendarDate>, SyncFailure>> {
+    const tables = await context.store.readTablesBetween(chunk.start, chunk.end, context.signal());
+    if (!tables.ok) {
+        return tables;
+    }
+    const stored = new Set(tables.value.map((pair) => pair.validFrom));
+    return ok([...fetched.keys()].filter((validFrom) => !stored.has(validFrom)));
+}
+
+/**
  * One CSV export over the chunk, compared with the mirror's rows for the same chunk and codes; then each date that
- * changed, each date already unresolved in the chunk, and with `everyPublication` each date in the export, is
- * resolved in date order.
+ * changed, each date already unresolved in the chunk, and with `everyPublication` each date in the export that an
+ * earlier run has not committed (withoutTables), is resolved in date order. So a bootstrap cut short by the deadline
+ * fetches only what it has not yet committed when the next run takes it up.
  */
 async function resolveChunk(
     context: SyncContext,
@@ -147,11 +166,11 @@ async function resolveChunk(
     // The mirror's rows as the same request would list them: a stored row of a code not asked is not a removal.
     const held = groupByValidFrom(exportRows(stored.value, codes, chunk.start, chunk.end));
     const inChunk = state.unresolved.filter((date) => date >= chunk.start && date <= chunk.end);
-    const dates = new Set([
-        ...changedPublications(fetched, held),
-        ...inChunk,
-        ...(everyPublication ? fetched.keys() : []),
-    ]);
+    const uncommitted = everyPublication ? await withoutTables(context, chunk, fetched) : ok([]);
+    if (!uncommitted.ok) {
+        return uncommitted;
+    }
+    const dates = new Set([...changedPublications(fetched, held), ...inChunk, ...uncommitted.value]);
     const unresolved: CalendarDate[] = [];
     for (const validFrom of [...dates].sort()) {
         const outcome = await resolvePublication(context, validFrom, fetched.get(validFrom) ?? [], codes);
@@ -170,7 +189,8 @@ async function resolveChunk(
 
 /**
  * Without a span: today's English table gives the codes, one CSV covers the window, every publication in it is
- * resolved, and the span starts at the earliest one and ends at tomorrow only when all of them agree.
+ * resolved but one an earlier attempt already committed as the export lists it, and the span starts at the earliest
+ * one and ends at tomorrow only when all of them agree.
  */
 async function bootstrap(
     context: SyncContext,

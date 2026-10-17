@@ -459,19 +459,58 @@ describe('runSync: the deadline', () => {
 
         const mark = harness.mark();
         const next = await harness.run('2026-10-08T11:00');
-        expect(next).toMatchObject({ syncResult: 'ok', syncDetail: null, checked: true, committed: 3 });
-        // A bootstrap resolves every publication in its window, the two already committed included.
-        expect(harness.since(mark).requests).toEqual([
-            'day:en:2026-10-08',
-            `range:${CODES}:2026-10-01:2026-10-09`,
-            ...OCTOBER.flatMap((subject) => [`day:en:${subject.validFrom}`, `day:ka:${subject.validFrom}`]),
-        ]);
+        // Today's table, the CSV and the three publications not yet committed, each in both languages.
+        expect(next).toMatchObject({ syncResult: 'ok', syncDetail: null, checked: true, committed: 3, nbgRequests: 8 });
+        expect(harness.since(mark).requests).toHaveLength(8);
         const finished = await harness.state();
         expect(finished.span).toEqual({ start: '2026-10-01', end: '2026-10-09' });
         expect(finished.freshUntil).toBe(at('2026-10-08T12:05'));
         for (const subject of OCTOBER) {
             expect(await held(harness.store, subject.validFrom)).toBeDefined();
         }
+    });
+
+    /** A bootstrap at 10:00 whose time runs short once it has committed 2026-10-01 and 2026-10-02. */
+    async function cutShortBootstrap(): Promise<Harness> {
+        const harness = await setUp();
+        const commits = (): number => harness.store.writes.filter((write) => write.operation === 'commit').length;
+        const result = await harness.run('2026-10-08T10:00', {
+            remainingMs: () => (commits() >= 2 ? 15_000 : 25_000),
+        });
+        expect(result).toMatchObject({ syncDetail: 'deadline', committed: 2 });
+        return harness;
+    }
+
+    it('fetches on the next run only the publications a bootstrap cut short left uncommitted', async () => {
+        const harness = await cutShortBootstrap();
+        const mark = harness.mark();
+        const next = await harness.run('2026-10-08T11:00');
+        expect(next).toMatchObject({ syncResult: 'ok', checked: true, committed: 3, nbgRequests: 8 });
+        // 2026-10-01 and 2026-10-02 hold the export's rows and both tables: the cut-short run committed them.
+        expect(harness.since(mark).requests).toEqual([
+            'day:en:2026-10-08',
+            `range:${CODES}:2026-10-01:2026-10-09`,
+            ...['2026-10-03', '2026-10-06', '2026-10-07'].flatMap((day) => [`day:en:${day}`, `day:ka:${day}`]),
+        ]);
+        expect((await harness.state()).span).toEqual({ start: '2026-10-01', end: '2026-10-09' });
+    });
+
+    it('resolves again a publication the cut-short bootstrap committed when NBG has changed its rows since', async () => {
+        const harness = await cutShortBootstrap();
+        const changed = publication(withRates(tableFixture('en', '2026-10-02'), { USD: 2.6111 }));
+        harness.fake.publish(changed);
+        const mark = harness.mark();
+        const next = await harness.run('2026-10-08T11:00');
+        expect(next).toMatchObject({ syncResult: 'ok', checked: true, committed: 4 });
+        expect(harness.since(mark).requests).toEqual([
+            'day:en:2026-10-08',
+            `range:${CODES}:2026-10-01:2026-10-09`,
+            ...['2026-10-02', '2026-10-03', '2026-10-06', '2026-10-07'].flatMap((day) => [
+                `day:en:${day}`,
+                `day:ka:${day}`,
+            ]),
+        ]);
+        expect(await held(harness.store, '2026-10-02')).toEqual(expectedHeld(changed, at('2026-10-08T11:00:02')));
     });
 
     it('records no fresh-until without time left for the write', async () => {
