@@ -1,13 +1,25 @@
 import { addDays } from '../core/dates.js';
-import { extendSpanEnd, recordFreshUntil, startSpan, type MirrorSpan, type MirrorState } from '../core/mirror.js';
+import {
+    extendSpanEnd,
+    inSpan,
+    markUnresolved,
+    recordFreshUntil,
+    recordWindow,
+    startSpan,
+    type MirrorSpan,
+    type MirrorState,
+    type WindowState,
+} from '../core/mirror.js';
 import {
     changedPublications,
     csvRequestCodes,
     exportRows,
     groupByValidFrom,
+    sameTable,
     tableCodes,
+    tableValidFrom,
 } from '../core/mirror-publication.js';
-import { freshUntilAfter } from '../core/sync-schedule.js';
+import { freshUntilAfter, QUIET_RUNS_TO_STOP } from '../core/sync-schedule.js';
 import { err, ok, type CalendarDate, type CurrencyCode, type Result } from '../core/types.js';
 import {
     applyToState,
@@ -62,7 +74,8 @@ function chunksOf(start: CalendarDate, end: CalendarDate): ReadonlyArray<Chunk> 
     return chunks;
 }
 
-function stoppedWindowDate(state: MirrorState): CalendarDate | undefined {
+/** The Tbilisi date whose window the state records as stopped, if any. */
+export function stoppedWindowDate(state: MirrorState): CalendarDate | undefined {
     return state.window?.stopped === true ? state.window.date : undefined;
 }
 
@@ -303,4 +316,128 @@ export async function runHourlyCheck(
         return ok({ checked, deadline: false, retryFailure: retried.error });
     }
     return ok({ checked, deadline: retried.value === 'deadline' });
+}
+
+/** What one window run saw of tomorrow's publication. */
+interface TomorrowSeen {
+    /** NBG's English table for tomorrow is the stored one (write stamps aside), and tomorrow is not unresolved. */
+    readonly quiet: boolean;
+    /** The mirror holds tomorrow's publication as NBG's sources agree on it. */
+    readonly committed: boolean;
+}
+
+const NOT_THERE: TomorrowSeen = { quiet: false, committed: false };
+
+/**
+ * Both of tomorrow's tables are there and the CSV for tomorrow alone lists nothing yet: the CSV runs behind the JSON,
+ * so tomorrow stays unresolved for the next run instead of failing this one.
+ */
+async function csvBehind(
+    context: SyncContext,
+    tomorrow: CalendarDate,
+): Promise<Result<TomorrowSeen | 'deadline', SyncFailure>> {
+    const marked = await applyToState(context, (current) => markUnresolved(current, [tomorrow]));
+    if (!marked.ok) {
+        return marked;
+    }
+    return ok(marked.value.kind === 'deadline' ? 'deadline' : NOT_THERE);
+}
+
+/**
+ * The window's first step. NBG's English table for tomorrow: one valid from an earlier date is NBG's JSON answering
+ * its latest table, so tomorrow's is not there yet and nothing is stored. One equal to the stored table, with tomorrow
+ * not unresolved, is a quiet run. Otherwise the Georgian table and the CSV for tomorrow decide, through
+ * resolvePublication, with the observation taken before the English request.
+ */
+async function checkTomorrow(
+    context: SyncContext,
+    state: MirrorState,
+    tomorrow: CalendarDate,
+): Promise<Result<TomorrowSeen | 'deadline', SyncFailure>> {
+    const observedAt = context.now().getTime();
+    const fetched = await context.fetchDay(tomorrow, 'en');
+    if (fetched.kind === 'deadline') {
+        return ok('deadline');
+    }
+    if (fetched.kind === 'nbg_error') {
+        return err(syncNbgFailure(fetched.error));
+    }
+    const en = fetched.value;
+    if (tableValidFrom(en) !== tomorrow) {
+        return ok(NOT_THERE);
+    }
+    if (!state.unresolved.includes(tomorrow)) {
+        const stored = await context.store.readTable(tomorrow, 'en', context.signal());
+        if (!stored.ok) {
+            return stored;
+        }
+        if (stored.value !== undefined && sameTable(stored.value.day, en)) {
+            return ok({ quiet: true, committed: true });
+        }
+    }
+    const codes = csvRequestCodes(tableCodes(en), tomorrow, tomorrow);
+    const outcome = await resolvePublication(context, tomorrow, undefined, codes, { observedAt, en });
+    if (!outcome.ok) {
+        // With the English table valid from tomorrow, the only empty export is the CSV for tomorrow alone.
+        return outcome.error.kind === 'empty_export' ? csvBehind(context, tomorrow) : outcome;
+    }
+    if (outcome.value === 'deadline') {
+        return ok('deadline');
+    }
+    return ok({ quiet: false, committed: outcome.value === 'committed' || outcome.value === 'unchanged' });
+}
+
+/**
+ * The window state this run leaves, from the window the state holds for the same Tbilisi date: a quiet run adds one
+ * to its quiet runs and any other run sets them to 0; once committed, the publication stays committed for the day.
+ */
+function nextWindow(current: MirrorState, seen: TomorrowSeen, today: CalendarDate, at: number): WindowState {
+    const previous = current.window?.date === today ? current.window : undefined;
+    const quietRuns = seen.quiet ? (previous?.quietRuns ?? 0) + 1 : 0;
+    const committed = seen.committed || previous?.committed === true;
+    return { date: today, committed, quietRuns, stopped: committed && quietRuns >= QUIET_RUNS_TO_STOP, at };
+}
+
+/**
+ * One run of the publication window, from `state` as the run claimed it: tomorrow's English table, committing
+ * tomorrow's publication when it appears or changes; then each unresolved date other than tomorrow, oldest first,
+ * while the deadline allows. Then one state write records the window, stopped once tomorrow's publication is
+ * committed and QUIET_RUNS_TO_STOP runs in a row saw no change, and, when the span covers tomorrow, the fresh-until
+ * time due after the scheduled time, which makes the run `checked`. Both are computed from the state the write reads,
+ * so a newer run's count is kept and an older run changes nothing. A failure, or the deadline during tomorrow's step,
+ * writes neither.
+ */
+export async function runWindowCheck(
+    context: SyncContext,
+    state: MirrorState,
+): Promise<Result<CheckOutcome, SyncFailure>> {
+    const tomorrow = addDays(context.today, 1);
+    const checked = await checkTomorrow(context, state, tomorrow);
+    if (!checked.ok) {
+        return checked;
+    }
+    if (checked.value === 'deadline') {
+        return ok({ checked: false, deadline: true });
+    }
+    const seen = checked.value;
+    const retried = await retryOutside(context, state, { start: tomorrow, end: tomorrow });
+    if (!retried.ok) {
+        return retried;
+    }
+    const scheduledAt = context.scheduledAt.getTime();
+    const recorded = await applyToState(context, (current) => {
+        const withWindow = recordWindow(current, nextWindow(current, seen, context.today, scheduledAt));
+        if (!inSpan(withWindow, tomorrow)) {
+            return withWindow;
+        }
+        const freshUntil = freshUntilAfter(context.scheduledAt, stoppedWindowDate(withWindow));
+        return recordFreshUntil(withWindow, freshUntil.getTime());
+    });
+    if (!recorded.ok) {
+        return recorded;
+    }
+    if (recorded.value.kind === 'deadline') {
+        return ok({ checked: false, deadline: true });
+    }
+    return ok({ checked: inSpan(recorded.value.state, tomorrow), deadline: retried.value === 'deadline' });
 }

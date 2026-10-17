@@ -1,9 +1,10 @@
 import { claimRun, type MirrorState } from '../core/mirror.js';
-import { MAX_EVENT_AGE_MS, type SyncKind } from '../core/sync-schedule.js';
+import { isWindowMinute, MAX_EVENT_AGE_MS, type SyncKind } from '../core/sync-schedule.js';
+import type { Result } from '../core/types.js';
 import { STORE_OPERATION_TIMEOUT_MS, type MirrorStore } from './mirror-store.js';
 import type { NbgClient } from './nbg-client.js';
-import { runHourlyCheck } from './sync-check.js';
-import { createSyncContext, type SyncContext } from './sync-publication.js';
+import { runHourlyCheck, runWindowCheck, stoppedWindowDate, type CheckOutcome } from './sync-check.js';
+import { createSyncContext, type SyncContext, type SyncFailure } from './sync-publication.js';
 
 export interface SyncEvent {
     readonly kind: SyncKind;
@@ -40,7 +41,7 @@ interface RunOutcome {
     readonly checked: boolean;
 }
 
-function skipped(reason: 'late' | 'early' | 'duplicate' | 'not_built'): RunOutcome {
+function skipped(reason: 'late' | 'early' | 'outside_window' | 'window_stopped' | 'duplicate'): RunOutcome {
     return { result: 'skipped', detail: reason, checked: false };
 }
 
@@ -109,12 +110,16 @@ function watchedStore(store: MirrorStore, seen: (state: MirrorState) => void): M
     };
 }
 
+/** Each kind's check, from the state as the run claimed it. */
+const CHECKS: Readonly<
+    Record<SyncKind, (context: SyncContext, state: MirrorState) => Promise<Result<CheckOutcome, SyncFailure>>>
+> = { hourly: runHourlyCheck, window: runWindowCheck };
+
 /**
- * The hourly kind's steps in order; a failed check ends the run before any later step. A failure while retrying
- * unresolved dates after a successful check fails the run too, with `checked` as the check left it.
+ * The run's outcome from its check's: a failed check fails the run. A failure while retrying unresolved dates after a
+ * successful hourly check fails the run too, with `checked` as the check left it.
  */
-async function runHourly(context: SyncContext, state: MirrorState): Promise<RunOutcome> {
-    const check = await runHourlyCheck(context, state);
+function runOutcome(check: Result<CheckOutcome, SyncFailure>): RunOutcome {
     if (!check.ok) {
         return failed(check.error.kind);
     }
@@ -131,9 +136,10 @@ async function runHourly(context: SyncContext, state: MirrorState): Promise<RunO
 /**
  * One scheduled sync run. An event not shown to be at most MAX_EVENT_AGE_MS old (an invalid scheduled time included)
  * is skipped as late, and one scheduled more than MAX_EVENT_AGE_MS ahead of now as early, with no store call: the
- * claim, the fresh-until time and the span only move forward, so a future time must never reach them. Then the state
- * is read, the run claimed (a lost claim is a duplicate), and the kind's work done. Writes the run's log line and
- * returns it.
+ * claim, the fresh-until time and the span only move forward, so a future time must never reach them. A window event
+ * not on a window minute is skipped as outside_window, with no store call either. Then the state is read, a window
+ * event on the Tbilisi date whose window is stopped is skipped as window_stopped with no write, the run is claimed (a
+ * lost claim is a duplicate), and the kind's check done. Writes the run's log line and returns it.
  */
 export async function runSync(event: SyncEvent, remainingMs: () => number, deps: SyncDeps): Promise<SyncLogLine> {
     const startedAt = deps.now();
@@ -165,15 +171,8 @@ export async function runSync(event: SyncEvent, remainingMs: () => number, deps:
     if (age < -MAX_EVENT_AGE_MS) {
         return finish(skipped('early'));
     }
-    switch (event.kind) {
-        case 'window':
-            return finish(skipped('not_built'));
-        case 'hourly':
-            break;
-        default: {
-            const exhaustive: never = event.kind;
-            return exhaustive;
-        }
+    if (event.kind === 'window' && !isWindowMinute(event.scheduledTime)) {
+        return finish(skipped('outside_window'));
     }
     const store = watchedStore(deps.store, (state) => {
         seen.state = state;
@@ -190,6 +189,9 @@ export async function runSync(event: SyncEvent, remainingMs: () => number, deps:
     if (!read.ok) {
         return finish(failed(read.error.kind), context);
     }
+    if (event.kind === 'window' && stoppedWindowDate(read.value) === context.today) {
+        return finish(skipped('window_stopped'), context);
+    }
     if (!context.allows(STORE_OPERATION_TIMEOUT_MS)) {
         return finish({ result: 'ok', detail: 'deadline', checked: false }, context);
     }
@@ -204,5 +206,5 @@ export async function runSync(event: SyncEvent, remainingMs: () => number, deps:
     if (claim.value === undefined) {
         return finish(skipped('duplicate'), context);
     }
-    return finish(await runHourly(context, claim.value), context);
+    return finish(runOutcome(await CHECKS[event.kind](context, claim.value)), context);
 }

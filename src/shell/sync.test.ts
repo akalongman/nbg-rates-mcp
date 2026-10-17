@@ -107,22 +107,6 @@ describe('runSync: which events run', () => {
         expect(harness.since(mark).writes).toEqual([]);
     });
 
-    it('skips a window event as not built yet, before any store call', async () => {
-        const harness = await setUp();
-        const mark = harness.mark();
-        const result = await harness.run('2026-10-08T17:01', { kind: 'window' });
-        expect(result).toEqual(
-            line({
-                time: '2026-10-08T13:01:02.000Z',
-                syncRun: 'window',
-                scheduledTime: '2026-10-08T13:01:00.000Z',
-                syncResult: 'skipped',
-                syncDetail: 'not_built',
-            }),
-        );
-        expect(harness.since(mark)).toEqual({ requests: [], writes: [], sleeps: [], operations: [] });
-    });
-
     it('fails a run whose state cannot be read, with no request', async () => {
         const harness = await setUp();
         harness.store.failWith('throttled');
