@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { code, date } from '../../test/helpers/values.js';
 import { err, ok, type HistorySeries, type RatesError, type RatesSnapshot, type Result } from '../core/types.js';
-import { nbgFailureKind, reportingNbgFailures, type NbgFailureKind } from './nbg-failure.js';
+import { asNbgFailure, nbgFailureKind, reportingNbgFailures, type NbgFailureKind } from './nbg-failure.js';
 import type { RatesService } from './rates-service.js';
 
 const SNAPSHOT: RatesSnapshot = {
@@ -55,6 +55,19 @@ describe('nbgFailureKind', () => {
         { kind: 'invalid_currency_code', value: 'dollar' },
     ])('leaves $kind uncounted', (error) => {
         expect(nbgFailureKind(error)).toBeUndefined();
+    });
+});
+
+describe('asNbgFailure', () => {
+    it.each<RatesError>([
+        { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' },
+        { kind: 'upstream_shape_changed', detail: 'missing header' },
+    ])('returns $kind itself', (error) => {
+        expect(asNbgFailure(error)).toBe(error);
+    });
+
+    it('returns undefined for rate_not_published', () => {
+        expect(asNbgFailure(RATE_NOT_PUBLISHED)).toBeUndefined();
     });
 });
 

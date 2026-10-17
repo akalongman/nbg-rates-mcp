@@ -6,6 +6,7 @@ import { parseNbgResponse, type NbgDay } from '../core/nbg-schema.js';
 import { err, ok, type Language, type RatesError, type Result } from '../core/types.js';
 import { createSnapshotCache } from './cache.js';
 import type { NbgClient } from './nbg-client.js';
+import type { NbgFailure } from './nbg-failure.js';
 import { createRatesService } from './rates-service.js';
 
 function fixtureDay(language: Language, value: string): Result<NbgDay, RatesError> {
@@ -130,6 +131,54 @@ describe('getSnapshot', () => {
         const { service: rates } = service({ failDate: '2026-10-07' });
         const result = await rates.getSnapshot({ date: date('2026-10-07'), language: 'en' });
         expect(result).toEqual({ ok: false, error: { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' } });
+    });
+
+    it('returns the NBG failure the request already met without asking NBG, even for a far-future date', async () => {
+        const { service: rates, calls } = service();
+        const outage: NbgFailure = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
+        for (const requested of ['2026-10-07', '2099-01-01']) {
+            const result = await rates.getSnapshot({ date: date(requested), language: 'en', withoutNbg: outage });
+            expect(result).toEqual(err(outage));
+        }
+        expect(calls).toEqual([]);
+    });
+
+    it('returns the NBG failure the request already met before reading the cache', async () => {
+        const { service: rates, calls } = service();
+        await rates.getSnapshot({ date: date('2026-10-07'), language: 'en' });
+        const outage: NbgFailure = { kind: 'upstream_shape_changed', detail: 'missing header' };
+        const result = await rates.getSnapshot({ date: date('2026-10-07'), language: 'en', withoutNbg: outage });
+        expect(result).toEqual(err(outage));
+        expect(calls).toEqual(['day:en:2026-10-07']);
+    });
+
+    it('asks NBG again when the cached entry was set before ignoreCachedBefore', async () => {
+        const { service: rates, calls } = service();
+        await rates.getSnapshot({ date: date('2026-10-07'), language: 'en' });
+        const result = await rates.getSnapshot({
+            date: date('2026-10-07'),
+            language: 'en',
+            ignoreCachedBefore: new Date(NOW.getTime() + 1),
+        });
+        expect(result.ok).toBe(true);
+        expect(calls).toEqual(['day:en:2026-10-07', 'day:en:2026-10-07']);
+    });
+
+    it('hands onFetched the table it fetched, but not a cached one or a table that does not answer', async () => {
+        const { service: rates, calls } = service();
+        const fetched: NbgDay[] = [];
+        const onFetched = (day: NbgDay) => fetched.push(day);
+        const monday = await rates.getSnapshot({ date: date('2026-10-05'), language: 'en', onFetched });
+        expect(monday.ok).toBe(true);
+        expect(fetched).toHaveLength(1);
+        expect(ok(fetched[0])).toEqual(fixtureDay('en', '2026-10-05'));
+        expect(fetched[0]?.date).toBe('2026-10-03T00:00:00.000Z');
+
+        await rates.getSnapshot({ date: date('2026-10-05'), language: 'en', onFetched });
+        const tomorrow = await rates.getSnapshot({ date: date('2026-10-09'), language: 'en', onFetched });
+        expect(tomorrow.ok === false && tomorrow.error.kind).toBe('rate_not_published');
+        expect(fetched).toHaveLength(1);
+        expect(calls).toEqual(['day:en:2026-10-05', 'day:en:2026-10-09']);
     });
 });
 

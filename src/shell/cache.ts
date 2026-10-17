@@ -5,13 +5,23 @@ import type { CalendarDate, Language, RatesSnapshot } from '../core/types.js';
 const LATE_PUBLICATION_DAYS = 7;
 
 export interface SnapshotCache {
-    get(language: Language, requestedDate: CalendarDate, now: Date): RatesSnapshot | undefined;
+    /**
+     * The live entry, or undefined. An entry set before ignoreCachedBefore is skipped but kept: that caller knows of a
+     * publication after the entry and asks NBG again, while a caller without the option still gets the entry.
+     */
+    get(
+        language: Language,
+        requestedDate: CalendarDate,
+        now: Date,
+        ignoreCachedBefore?: Date,
+    ): RatesSnapshot | undefined;
     set(language: Language, requestedDate: CalendarDate, snapshot: RatesSnapshot, now: Date): void;
     readonly size: number;
 }
 
 interface Entry {
     readonly snapshot: RatesSnapshot;
+    readonly setAt: number;
     readonly expiresAt: number;
 }
 
@@ -49,13 +59,16 @@ export function createSnapshotCache(
     }
 
     return {
-        get(language, requestedDate, now) {
+        get(language, requestedDate, now, ignoreCachedBefore) {
             const entry = entries.get(key(language, requestedDate));
             if (entry === undefined) {
                 return undefined;
             }
             if (isExpired(entry, now)) {
                 entries.delete(key(language, requestedDate));
+                return undefined;
+            }
+            if (ignoreCachedBefore !== undefined && entry.setAt < ignoreCachedBefore.getTime()) {
                 return undefined;
             }
             return entry.snapshot;
@@ -70,7 +83,7 @@ export function createSnapshotCache(
             }
             const expiresAt = now.getTime() + (isFinal(requestedDate, snapshot, now) ? finalTtlMs : provisionalTtlMs);
             entries.delete(entryKey);
-            entries.set(entryKey, { snapshot, expiresAt });
+            entries.set(entryKey, { snapshot, setAt: now.getTime(), expiresAt });
             while (entries.size > maxEntries) {
                 const oldest = entries.keys().next().value;
                 if (oldest === undefined) {

@@ -79,6 +79,14 @@ describe('createSnapshotCache', () => {
         expect(cache.get('en', date('2026-10-08'), NOW)?.effectiveDate).toBe('2026-10-08');
     });
 
+    it('skips an entry set before ignoreCachedBefore without dropping it', () => {
+        const cache = createSnapshotCache();
+        cache.set('en', date('2026-10-07'), snapshot('2026-10-07', '2026-10-07'), NOW);
+        expect(cache.get('en', date('2026-10-07'), NOW, new Date(NOW.getTime() + 1))).toBeUndefined();
+        expect(cache.get('en', date('2026-10-07'), NOW, NOW)?.effectiveDate).toBe('2026-10-07');
+        expect(cache.get('en', date('2026-10-07'), NOW)?.effectiveDate).toBe('2026-10-07');
+    });
+
     it('separates languages', () => {
         const cache = createSnapshotCache();
         cache.set('en', date('2026-10-07'), snapshot('2026-10-07', '2026-10-07'), NOW);

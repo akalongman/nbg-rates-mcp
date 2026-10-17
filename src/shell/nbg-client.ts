@@ -14,6 +14,8 @@ export interface NbgClientOptions {
     readonly baseUrl: string;
     readonly userAgent: string;
     readonly timeoutMs?: number;
+    /** Default true. False makes one attempt: a retryable outcome is upstream_unavailable with its own detail. */
+    readonly retry?: boolean;
     readonly retryDelayMs?: number;
     readonly fetchImpl?: typeof fetch;
     readonly log?: (message: string) => void;
@@ -50,6 +52,7 @@ function parseJson(text: string): Result<unknown, RatesError> {
 
 export function createNbgClient(options: NbgClientOptions): NbgClient {
     const timeoutMs = options.timeoutMs ?? 10_000;
+    const retry = options.retry ?? true;
     const retryDelayMs = options.retryDelayMs ?? 500;
     const fetchImpl = options.fetchImpl ?? fetch;
     const log = options.log ?? (() => undefined);
@@ -100,6 +103,9 @@ export function createNbgClient(options: NbgClientOptions): NbgClient {
 
     async function fetchText(url: string, expected: ExpectedType): Promise<Result<string, RatesError>> {
         let outcome = await attempt(url, expected);
+        if (outcome.kind === 'retryable' && !retry) {
+            return err({ kind: 'upstream_unavailable', detail: outcome.detail });
+        }
         if (outcome.kind === 'retryable') {
             await sleep(retryDelayMs);
             outcome = await attempt(url, expected);

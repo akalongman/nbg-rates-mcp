@@ -5,7 +5,6 @@ import { GEL, parseCurrencyCode } from '../core/currency-code.js';
 import { NBG_ARCHIVE_START, TBILISI_TIME_ZONE, addDays, parseCalendarDate, todayIn } from '../core/dates.js';
 import { add, decimalToRational, fromInteger, roundHalfUp } from '../core/decimal.js';
 import {
-    err,
     ok,
     type CalendarDate,
     type Conversion,
@@ -15,6 +14,7 @@ import {
     type Result,
 } from '../core/types.js';
 import { historyOutput } from './history-output.js';
+import type { NbgFailure } from './nbg-failure.js';
 import { PROMPTS, promptArgsSchema, renderPrompt } from './prompts.js';
 import type { RatesService } from './rates-service.js';
 import { SITE_ORIGIN } from './site/hosted.js';
@@ -233,17 +233,18 @@ async function convertMany(items: ConvertManyItems, deps: ServerDeps) {
     const prepared = items.map((item) => prepareConversion(item, now));
     // One service call per distinct date, in first-seen order; GEL to GEL items need none.
     const snapshots = new Map<CalendarDate, Result<RatesSnapshot, RatesError>>();
-    let outage: RatesError | undefined;
+    let outage: NbgFailure | undefined;
     for (const item of prepared) {
         if (!item.ok || isIdentity(item.value) || snapshots.has(item.value.date)) {
             continue;
         }
-        if (outage !== undefined) {
-            // NBG is not answering: the remaining dates get the same error instead of a 20-second wait each.
-            snapshots.set(item.value.date, err(outage));
-            continue;
-        }
-        const snapshot = await deps.service.getSnapshot({ date: item.value.date, language: 'en' });
+        // Once NBG is not answering, the service answers the remaining dates without asking it, instead of a
+        // 20-second wait each.
+        const snapshot = await deps.service.getSnapshot({
+            date: item.value.date,
+            language: 'en',
+            ...(outage === undefined ? {} : { withoutNbg: outage }),
+        });
         if (!snapshot.ok && snapshot.error.kind === 'upstream_unavailable') {
             outage = snapshot.error;
         }

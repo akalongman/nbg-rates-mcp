@@ -15,6 +15,7 @@ import {
     type RatesError,
     type RatesSnapshot,
 } from '../core/types.js';
+import type { NbgFailure } from './nbg-failure.js';
 import { PROMPTS, renderPrompt } from './prompts.js';
 import type { RatesService } from './rates-service.js';
 import { createServer, describeError } from './server.js';
@@ -786,12 +787,17 @@ describe('nbg_convert_many', () => {
     });
 
     it('stops asking NBG after one outage and fails the later dates, keeping the ones fetched before', async () => {
-        const { service: table, requests } = tableService();
+        const { service: table } = tableService();
         const outage: RatesError = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
+        const asked: Array<{ date: CalendarDate; withoutNbg: NbgFailure | undefined }> = [];
         const service: RatesService = {
             getSnapshot(args) {
+                asked.push({ date: args.date, withoutNbg: args.withoutNbg });
+                if (args.withoutNbg !== undefined) {
+                    // As the real service does: a request that already met an NBG failure gets it back at once.
+                    return Promise.resolve(err(args.withoutNbg));
+                }
                 if (args.date === '2026-10-07') {
-                    requests.push({ date: args.date, language: args.language, codes: args.codes });
                     return Promise.resolve(err(outage));
                 }
                 return table.getSnapshot(args);
@@ -812,9 +818,13 @@ describe('nbg_convert_many', () => {
             },
         });
 
-        // 2026-10-05 answered before the outage; 2026-10-06 was never requested: after an outage every later date
-        // gets the same error without a wait.
-        expect(requests.map((request) => request.date)).toEqual(['2026-10-05', '2026-10-07']);
+        // 2026-10-05 answered before the outage; 2026-10-06 is asked with the outage, so the service answers it
+        // without NBG and every later date gets the same error without a wait.
+        expect(asked).toEqual([
+            { date: '2026-10-05', withoutNbg: undefined },
+            { date: '2026-10-07', withoutNbg: undefined },
+            { date: '2026-10-06', withoutNbg: outage },
+        ]);
         const output = convertManyOutput.parse(result.structuredContent);
         expect(output.items.map((item) => ('error' in item ? item.error : item.resultRounded))).toEqual([
             13.01,

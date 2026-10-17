@@ -17,7 +17,7 @@ describe('createNbgClient', () => {
         await server.close();
     });
 
-    function client(overrides: { timeoutMs?: number; log?: (message: string) => void } = {}) {
+    function client(overrides: { timeoutMs?: number; retry?: boolean; log?: (message: string) => void } = {}) {
         return createNbgClient({
             baseUrl: server.baseUrl,
             userAgent: 'nbg-rates-mcp/test',
@@ -97,6 +97,22 @@ describe('createNbgClient', () => {
             if (!result.ok) {
                 expect(result.error.kind).toBe('upstream_unavailable');
             }
+        });
+
+        it('makes one attempt without retry and reports its own detail', async () => {
+            server.setResponder(() => ({ status: 503, body: 'down', contentType: 'text/plain' }));
+            const result = await client({ retry: false }).fetchDay(date('2026-10-07'), 'en');
+            expect(result).toEqual({ ok: false, error: { kind: 'upstream_unavailable', detail: 'HTTP 503' } });
+            expect(server.requests).toHaveLength(1);
+        });
+
+        it('gives up after one timed-out attempt without retry', async () => {
+            server.setResponder(() => ({ status: 200, body: '[]', delayMs: 2000 }));
+            const started = Date.now();
+            const result = await client({ retry: false, timeoutMs: 100 }).fetchDay(date('2026-10-07'), 'en');
+            expect(Date.now() - started).toBeLessThan(1000);
+            expect(result.ok === false && result.error.kind).toBe('upstream_unavailable');
+            expect(server.requests).toHaveLength(1);
         });
 
         it('reports an HTML firewall block page as upstream_unavailable, without a retry', async () => {
