@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { fixturePath } from '../../test/helpers/fixtures.js';
+import { ACCEPT, firstMessage, post, toolCall } from '../../test/helpers/mcp-http.js';
 import { code, date } from '../../test/helpers/values.js';
 import { err, ok, type RatesError, type RatesSnapshot, type Result } from '../core/types.js';
 import { createSnapshotCache } from './cache.js';
@@ -11,7 +12,9 @@ import {
     type HttpDeps,
     type RequestLogLine,
 } from './http.js';
+import { createLookupScopes } from './lookup-scope.js';
 import { createNbgClient } from './nbg-client.js';
+import type { NbgFailure } from './nbg-failure.js';
 import { createRatesService, type RatesService } from './rates-service.js';
 import { FAVICON_ICO_BASE64 } from './site/assets.generated.js';
 import { HOSTED_SERVER_ICONS } from './site/hosted.js';
@@ -30,7 +33,6 @@ const service: RatesService = {
     getHistory: () => Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'stub' })),
 };
 
-const ACCEPT = 'application/json, text/event-stream';
 /** What a browser sends when someone types the address. */
 const BROWSER_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 const INITIALIZE = {
@@ -66,12 +68,8 @@ const LISTEN = {
 };
 const LISTEN_HEADERS = { 'mcp-protocol-version': '2026-07-28', 'mcp-method': 'subscriptions/listen' };
 
-const UNAVAILABLE: RatesError = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
-const SHAPE_CHANGED: RatesError = { kind: 'upstream_shape_changed', detail: 'missing header' };
-
-function toolCall(name: string, args: Record<string, unknown>) {
-    return { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name, arguments: args } };
-}
+const UNAVAILABLE: NbgFailure = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
+const SHAPE_CHANGED: NbgFailure = { kind: 'upstream_shape_changed', detail: 'missing header' };
 
 /** The test service with getSnapshot answering the given result for every date. */
 function snapshotAnswering(result: Result<RatesSnapshot, RatesError>): RatesService {
@@ -94,21 +92,6 @@ function handlerWith(overrides: Partial<HttpDeps> = {}, mcpFetch?: (request: Req
         mcpFetch,
     );
     return { handler, lines };
-}
-
-function post(
-    body: unknown,
-    options: { host?: string; path?: string; accept?: string | null; headers?: Record<string, string> } = {},
-): Request {
-    const headers: Record<string, string> = { 'content-type': 'application/json', ...options.headers };
-    if (options.accept !== null) {
-        headers['accept'] = options.accept ?? ACCEPT;
-    }
-    return new Request(`https://${options.host ?? 'nbg-rates.env.ge'}${options.path ?? '/mcp'}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-    });
 }
 
 function get(path: string, options: { host?: string; method?: string; accept?: string } = {}): Request {
@@ -137,16 +120,6 @@ async function allMessages(response: Response): Promise<Record<string, unknown>[
         .split('\n')
         .filter((line) => line.startsWith('data:'))
         .map((line) => JSON.parse(line.replace(/^data:\s*/, '')) as Record<string, unknown>);
-}
-
-/** The first JSON-RPC message of a JSON or SSE response body. */
-async function firstMessage(response: Response): Promise<Record<string, unknown>> {
-    const text = await response.text();
-    const line =
-        text.startsWith('data:') || text.includes('\ndata:')
-            ? text.split('\n').find((l) => l.startsWith('data:'))
-            : text;
-    return JSON.parse((line ?? '').replace(/^data:\s*/, '')) as Record<string, unknown>;
 }
 
 describe('parseAllowedHosts', () => {
@@ -496,6 +469,24 @@ describe('createHttpHandler nbgError', () => {
         expect(lines).toHaveLength(2);
         expect(lines.find((line) => line.tool === 'nbg_convert')).toMatchObject({ nbgError: 'upstream_unavailable' });
         expect(lines.find((line) => line.tool === 'nbg_get_rates')).toMatchObject({ nbgError: null });
+    });
+
+    it('logs a failure that a service sharing the lookup scopes recorded itself, though it answered', async () => {
+        const lookupScopes = createLookupScopes();
+        const recording: RatesService = {
+            ...service,
+            getSnapshot() {
+                lookupScopes.record(UNAVAILABLE);
+                return Promise.resolve(ok(SNAPSHOT));
+            },
+        };
+        const { handler, lines } = handlerWith({ service: recording, lookupScopes });
+        const response = await handler(
+            post(toolCall('nbg_convert', { amount: 10, from: 'USD', to: 'GEL', date: '2026-10-07' })),
+        );
+        expect(await firstMessage(response)).toMatchObject({ result: { structuredContent: { resultRounded: 26.03 } } });
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toMatchObject({ tool: 'nbg_convert', outcome: 'ok', nbgError: 'upstream_unavailable' });
     });
 
     it('does not count a lookup whose retry succeeded', async () => {

@@ -1,6 +1,6 @@
 import { CLIENT_INFO_META_KEY, createMcpHandler, type Icon } from '@modelcontextprotocol/server';
-import { AsyncLocalStorage } from 'node:async_hooks';
 import * as z from 'zod';
+import { createLookupScopes, newLookupScope, type LookupScopes } from './lookup-scope.js';
 import { reportingNbgFailures, type NbgFailureKind } from './nbg-failure.js';
 import type { RatesService } from './rates-service.js';
 import { createServer } from './server.js';
@@ -9,8 +9,9 @@ import { createSiteResponder } from './site/routes.js';
 /**
  * The HTTP face of the server: Host validation, the site paths (the landing page, the icons, robots.txt, OpenAI's
  * domain challenge and the redirect of a browser at /mcp, decided in site/routes.ts), path routing and one log line
- * per MCP request around the SDK's stateless Streamable HTTP handler. The line carries the NBG failure the request met
- * (nbg-failure.ts), traced through that request's own async work so concurrent requests never mark each other.
+ * per MCP request around the SDK's stateless Streamable HTTP handler. Each MCP request runs in its own lookup scope
+ * (lookup-scope.ts), which carries the NBG failure the request met (nbg-failure.ts) for the line and also what the
+ * mirror needs from the request.
  * Host-neutral: http-node.ts serves it on a port, lambda.ts behind API Gateway.
  */
 
@@ -41,6 +42,8 @@ export interface HttpDeps {
     /** Listed in serverInfo at initialize; empty sends no icons key. */
     readonly serverIcons: readonly Icon[];
     readonly log: (line: RequestLogLine) => void;
+    /** Shared with a service that records failures itself (the mirror); default: the handler's own. */
+    readonly lookupScopes?: LookupScopes;
 }
 
 const SOURCE_URL = 'https://github.com/akalongman/nbg-rates-mcp';
@@ -143,29 +146,17 @@ function defaultMcpFetch(deps: HttpDeps): (request: Request) => Promise<Response
     return handler.fetch;
 }
 
-/** The NBG failure one /mcp request met so far; the first one wins. */
-interface NbgFailureMet {
-    kind: NbgFailureKind | null;
-}
-
 export function createHttpHandler(
     deps: HttpDeps,
     mcpFetch?: (request: Request) => Promise<Response>,
 ): (request: Request) => Promise<Response> {
     const site = createSiteResponder({ version: deps.version, openAiChallenge: deps.openAiChallenge });
-    // Each /mcp request runs in its own store, and a lookup reports to the store of the request whose async work
-    // called it, so a failure lands on that request's line however many requests are in flight.
-    const nbgFailures = new AsyncLocalStorage<NbgFailureMet>();
+    const scopes = deps.lookupScopes ?? createLookupScopes();
     const forwardToMcp =
         mcpFetch ??
         defaultMcpFetch({
             ...deps,
-            service: reportingNbgFailures(deps.service, (kind) => {
-                const met = nbgFailures.getStore();
-                if (met !== undefined && met.kind === null) {
-                    met.kind = kind;
-                }
-            }),
+            service: reportingNbgFailures(deps.service, (failure) => scopes.record(failure)),
         });
     return async function handle(request: Request): Promise<Response> {
         const url = new URL(request.url);
@@ -198,13 +189,13 @@ export function createHttpHandler(
             headers: request.headers,
             ...(requestBytes.byteLength === 0 ? {} : { body: requestBytes }),
         });
-        const met: NbgFailureMet = { kind: null };
+        const scope = newLookupScope();
         let response: Response;
         let body: string;
         try {
             // The SDK may run a tool while the body is read, after forwardToMcp resolved, so the read runs in the
-            // store too.
-            const answered = await nbgFailures.run(met, async () => {
+            // scope too.
+            const answered = await scopes.run(scope, async () => {
                 const mcpResponse = await forwardToMcp(forwarded);
                 return { response: mcpResponse, body: await mcpResponse.text() };
             });
@@ -222,7 +213,7 @@ export function createHttpHandler(
             ...summary,
             status: response.status,
             outcome,
-            nbgError: met.kind,
+            nbgError: scope.failure?.kind ?? null,
             durationMs: Math.round(performance.now() - started),
         };
         try {

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { code, date } from '../../test/helpers/values.js';
 import { err, ok, type HistorySeries, type RatesError, type RatesSnapshot, type Result } from '../core/types.js';
-import { asNbgFailure, nbgFailureKind, reportingNbgFailures, type NbgFailureKind } from './nbg-failure.js';
+import {
+    asNbgFailure,
+    nbgFailureKind,
+    reportingNbgFailures,
+    type NbgFailure,
+    type NbgFailureKind,
+} from './nbg-failure.js';
 import type { RatesService } from './rates-service.js';
 
 const SNAPSHOT: RatesSnapshot = {
@@ -32,9 +38,13 @@ function serviceAnswering(
     };
 }
 
-function reporting(service: RatesService): { service: RatesService; reported: NbgFailureKind[] } {
-    const reported: NbgFailureKind[] = [];
-    return { service: reportingNbgFailures(service, (kind) => reported.push(kind)), reported };
+function reporting(service: RatesService): { service: RatesService; reported: NbgFailure[] } {
+    const reported: NbgFailure[] = [];
+    return { service: reportingNbgFailures(service, (failure) => reported.push(failure)), reported };
+}
+
+function kinds(failures: ReadonlyArray<NbgFailure>): NbgFailureKind[] {
+    return failures.map((failure) => failure.kind);
 }
 
 describe('nbgFailureKind', () => {
@@ -86,7 +96,7 @@ describe('reportingNbgFailures', () => {
         const args = { date: date('2026-10-07'), language: 'en' as const, codes: [code('USD')] };
         expect(await service.getSnapshot(args)).toBe(failed);
         expect(asked).toEqual([args]);
-        expect(reported).toEqual(['upstream_unavailable']);
+        expect(kinds(reported)).toEqual(['upstream_unavailable']);
     });
 
     it('reports a history that NBG answered in a changed shape', async () => {
@@ -98,7 +108,7 @@ describe('reportingNbgFailures', () => {
             to: date('2026-10-07'),
         });
         expect(result).toBe(failed);
-        expect(reported).toEqual(['upstream_shape_changed']);
+        expect(kinds(reported)).toEqual(['upstream_shape_changed']);
     });
 
     it('reports nothing for an answer or an error that is not an NBG failure', async () => {

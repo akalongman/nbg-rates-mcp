@@ -39,14 +39,15 @@ export function asNbgFailure(error: RatesError): NbgFailure | undefined {
 }
 
 /**
- * The service, with report called once for each call whose result is an NBG failure; results pass through unchanged.
+ * The service, with report called once with the error of each call whose result is an NBG failure; results pass
+ * through unchanged.
  * The client retries inside a call, so a failed first attempt followed by a successful retry reports nothing.
  */
-export function reportingNbgFailures(service: RatesService, report: (kind: NbgFailureKind) => void): RatesService {
+export function reportingNbgFailures(service: RatesService, report: (failure: NbgFailure) => void): RatesService {
     function reportIfFailed(result: Result<unknown, RatesError>): void {
-        const kind = result.ok ? undefined : nbgFailureKind(result.error);
-        if (kind !== undefined) {
-            report(kind);
+        const failure = result.ok ? undefined : asNbgFailure(result.error);
+        if (failure !== undefined) {
+            report(failure);
         }
     }
     return {
