@@ -76,7 +76,18 @@ function appliedQuotes(rows: ReadonlyArray<NbgCsvRow>): ReadonlyMap<string, Quot
     return new Map([...rows].sort(compareCsvRows).map((row) => [row.code, row]));
 }
 
-/** The same codes with the same quantity and rate each; `excused` codes may be missing from the right. */
+/**
+ * A rate in units of NBG's fourth decimal, on the basis of hasAtMostFourDecimals: the JSON can carry float noise
+ * (4.9830000000000005) where the CSV holds the four decimals NBG set (4.983).
+ */
+function rateInTenThousandths(rate: number): number {
+    return Math.round(rate * 10_000);
+}
+
+/**
+ * The same codes, each with the same quantity and the same rate to four decimals; `excused` codes may be missing from
+ * the right.
+ */
 function compareQuotes(
     left: QuoteSource,
     right: QuoteSource,
@@ -95,7 +106,7 @@ function compareQuotes(
                 `${code} quantity ${leftQuote.quantity} in ${left.label}, ${rightQuote.quantity} in ${right.label}`,
             );
         }
-        if (leftQuote.rate !== rightQuote.rate) {
+        if (rateInTenThousandths(leftQuote.rate) !== rateInTenThousandths(rightQuote.rate)) {
             return err(`${code} rate ${leftQuote.rate} in ${left.label}, ${rightQuote.rate} in ${right.label}`);
         }
     }

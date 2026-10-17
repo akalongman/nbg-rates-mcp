@@ -25,12 +25,15 @@ export function tableFixture(language: Language, date: string): NbgDay {
     return onlyTable(loadFixture(name), name);
 }
 
-/** The rows the CSV export lists for a table: publishedOn is the date part of each row's write stamp. */
+/**
+ * The rows the CSV export lists for a table: publishedOn is the date part of each row's write stamp, and each rate is
+ * written with four decimals, so float noise in the JSON (4.9830000000000005) reads back as 4.983.
+ */
 export function rowsFromTable(table: NbgDay): ReadonlyArray<NbgCsvRow> {
     return table.currencies.map((row) => ({
         code: row.code,
         quantity: row.quantity,
-        rate: row.rate,
+        rate: Number(row.rate.toFixed(4)),
         publishedOn: calendarDateFromTimestamp(row.date),
         validFrom: calendarDateFromTimestamp(row.validFromDate),
     }));

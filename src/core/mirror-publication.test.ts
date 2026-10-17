@@ -72,6 +72,26 @@ describe('checkAgreement', () => {
         expect(checkTableAgainstRows(recorded.validFrom, recorded.ka, recorded.rows)).toEqual(ok(undefined));
     });
 
+    describe('with the float noise in the recorded 2005-03-15 table (AED 4.9830000000000005)', () => {
+        const noisy = tableFixture('en', '2005-03-15');
+        const rows = rowsFromTable(noisy);
+
+        it('agrees with rows that carry the rates at four decimals, as the export lists them', () => {
+            expect(noisy.currencies.find((row) => row.code === 'AED')?.rate).toBe(4.9830000000000005);
+            expect(rows.find((row) => row.code === 'AED')?.rate).toBe(4.983);
+            expect(checkTableAgainstRows(date('2005-03-15'), noisy, rows)).toEqual(ok(undefined));
+            const cleanGeorgian = withRow(georgianTwin(noisy), 'AED', { rate: 4.983 });
+            expect(agreement(publication(noisy, { ka: cleanGeorgian }))).toEqual(ok(undefined));
+        });
+
+        it('still disagrees on a difference of one in the fourth decimal', () => {
+            const changed = rows.map((row) => (row.code === 'AED' ? { ...row, rate: 4.9831 } : row));
+            expect(agreement(publication(noisy, { rows: changed }))).toEqual(
+                err('English table: AED rate 4.9830000000000005 in the table, 4.9831 in the rows'),
+            );
+        });
+    });
+
     it.each<readonly [string, NbgDay, NbgDay, ReadonlyArray<NbgCsvRow>, string]>([
         [
             'the 2026-10-06 table checked as 2026-10-07',
