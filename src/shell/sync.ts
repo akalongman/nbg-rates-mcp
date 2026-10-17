@@ -40,7 +40,7 @@ interface RunOutcome {
     readonly checked: boolean;
 }
 
-function skipped(reason: 'late' | 'duplicate' | 'not_built'): RunOutcome {
+function skipped(reason: 'late' | 'early' | 'duplicate' | 'not_built'): RunOutcome {
     return { result: 'skipped', detail: reason, checked: false };
 }
 
@@ -109,13 +109,19 @@ function watchedStore(store: MirrorStore, seen: (state: MirrorState) => void): M
     };
 }
 
-/** The hourly kind's steps in order; a failed check ends the run before any later step. */
+/**
+ * The hourly kind's steps in order; a failed check ends the run before any later step. A failure while retrying
+ * unresolved dates after a successful check fails the run too, with `checked` as the check left it.
+ */
 async function runHourly(context: SyncContext, state: MirrorState): Promise<RunOutcome> {
     const check = await runHourlyCheck(context, state);
     if (!check.ok) {
         return failed(check.error.kind);
     }
-    const { checked, deadline } = check.value;
+    const { checked, deadline, retryFailure } = check.value;
+    if (retryFailure !== undefined) {
+        return { result: 'failed', detail: retryFailure.kind, checked };
+    }
     if (deadline) {
         return { result: 'ok', detail: 'deadline', checked };
     }
@@ -124,8 +130,10 @@ async function runHourly(context: SyncContext, state: MirrorState): Promise<RunO
 
 /**
  * One scheduled sync run. An event not shown to be at most MAX_EVENT_AGE_MS old (an invalid scheduled time included)
- * is skipped as late with no store call. Then the state is read, the run claimed (a lost claim is a duplicate), and the
- * kind's work done. Writes the run's log line and returns it.
+ * is skipped as late, and one scheduled more than MAX_EVENT_AGE_MS ahead of now as early, with no store call: the
+ * claim, the fresh-until time and the span only move forward, so a future time must never reach them. Then the state
+ * is read, the run claimed (a lost claim is a duplicate), and the kind's work done. Writes the run's log line and
+ * returns it.
  */
 export async function runSync(event: SyncEvent, remainingMs: () => number, deps: SyncDeps): Promise<SyncLogLine> {
     const startedAt = deps.now();
@@ -153,6 +161,9 @@ export async function runSync(event: SyncEvent, remainingMs: () => number, deps:
     const age = startedAt.getTime() - event.scheduledTime.getTime();
     if (!(age <= MAX_EVENT_AGE_MS)) {
         return finish(skipped('late'));
+    }
+    if (age < -MAX_EVENT_AGE_MS) {
+        return finish(skipped('early'));
     }
     switch (event.kind) {
         case 'window':

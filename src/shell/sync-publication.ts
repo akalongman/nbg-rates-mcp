@@ -145,23 +145,40 @@ export async function applyToState(
 }
 
 /** NBG's table valid from `validFrom`, or undefined when NBG has none: its JSON then answers an earlier table. */
-function tableValidOn(day: NbgDay, validFrom: CalendarDate): NbgDay | undefined {
-    return tableValidFrom(day) === validFrom ? day : undefined;
+function tableValidOn(day: NbgDay | undefined, validFrom: CalendarDate): NbgDay | undefined {
+    return day !== undefined && tableValidFrom(day) === validFrom ? day : undefined;
 }
 
-async function fetchTable(
+/** The table NBG's JSON answers for the date (valid from it or earlier), or undefined when it has none before it. */
+async function fetchInForce(
     context: SyncContext,
     validFrom: CalendarDate,
     language: Language,
 ): Promise<SyncFetch<NbgDay | undefined>> {
     const fetched = await context.fetchDay(validFrom, language);
-    if (fetched.kind === 'ok') {
-        return { kind: 'ok', value: tableValidOn(fetched.value, validFrom) };
-    }
     if (fetched.kind === 'nbg_error' && fetched.error.kind === 'no_data_for_date') {
         return { kind: 'ok', value: undefined }; // nothing on or before the date
     }
     return fetched;
+}
+
+/** The export for the date alone. One naming no currency can list nothing, so it is empty without a request. */
+async function exportForDate(
+    context: SyncContext,
+    validFrom: CalendarDate,
+    codes: ReadonlyArray<CurrencyCode>,
+): Promise<Result<ReadonlyArray<NbgCsvRow> | 'deadline', SyncFailure>> {
+    if (codes.length === 0) {
+        return err({ kind: 'empty_export' });
+    }
+    const exported = await context.fetchRange(codes, validFrom, validFrom);
+    if (exported.kind !== 'ok') {
+        return stoppedBy(exported);
+    }
+    if (exported.value.length === 0) {
+        return err({ kind: 'empty_export' });
+    }
+    return ok(exported.value);
 }
 
 interface StoredPublication {
@@ -268,12 +285,14 @@ async function commitIfChanged(
  * export listed none for the date, undefined that no export covering the date was asked. The observation is the time
  * before the first fetch here, or `prefetched.observedAt`; a table `prefetched` carries is not fetched again.
  *
- * Neither table valid from the date means "not there": with rows for it the date is unresolved, without them what
- * the mirror holds for it is removed. One table there and not the other is unresolved. With both there, the CSV is
- * fetched for the date alone when no rows were given or the tables quote a code the request did not name; an empty
- * export then fails the run. The tables and rows must agree to be committed; a superseded write is `unchanged`. The
- * date is marked resolved or unresolved after, and `deadline` means the run's time ran out on the way, possibly after
- * a commit.
+ * One table valid from the date and not the other is unresolved, with no CSV request. Otherwise the CSV is fetched
+ * for the date alone when no rows were given, and also when both tables are there and quote a code the request did
+ * not name; the codes are those of the English table NBG answered for the date (valid from it or earlier), and an
+ * empty export fails the run. Neither table valid from the date means "not there": with rows for it the date is
+ * unresolved, and only rows given from an export that covers the date and lists none for it remove what the mirror
+ * holds (NBG's JSON alone never decides a removal). With both there, the tables and rows must agree to be committed; a
+ * superseded write is `unchanged`. The date is marked resolved or unresolved after, and `deadline` means the run's
+ * time ran out on the way, possibly after a commit.
  */
 export async function resolvePublication(
     context: SyncContext,
@@ -283,42 +302,46 @@ export async function resolvePublication(
     prefetched?: { readonly observedAt: number; readonly en: NbgDay; readonly ka?: NbgDay },
 ): Promise<Result<ResolveOutcome, SyncFailure>> {
     const observedAt = prefetched?.observedAt ?? context.now().getTime();
-    const en: SyncFetch<NbgDay | undefined> =
-        prefetched === undefined
-            ? await fetchTable(context, validFrom, 'en')
-            : { kind: 'ok', value: tableValidOn(prefetched.en, validFrom) };
-    if (en.kind !== 'ok') {
-        return stoppedBy(en);
+    const enInForce: SyncFetch<NbgDay | undefined> =
+        prefetched === undefined ? await fetchInForce(context, validFrom, 'en') : { kind: 'ok', value: prefetched.en };
+    if (enInForce.kind !== 'ok') {
+        return stoppedBy(enInForce);
     }
-    const ka: SyncFetch<NbgDay | undefined> =
+    const kaInForce: SyncFetch<NbgDay | undefined> =
         prefetched?.ka === undefined
-            ? await fetchTable(context, validFrom, 'ka')
-            : { kind: 'ok', value: tableValidOn(prefetched.ka, validFrom) };
-    if (ka.kind !== 'ok') {
-        return stoppedBy(ka);
+            ? await fetchInForce(context, validFrom, 'ka')
+            : { kind: 'ok', value: prefetched.ka };
+    if (kaInForce.kind !== 'ok') {
+        return stoppedBy(kaInForce);
     }
-    if (en.value === undefined && ka.value === undefined) {
-        return csvRows !== undefined && csvRows.length > 0
-            ? settle(context, validFrom, 'unresolved')
-            : removeIfStored(context, validFrom, observedAt);
-    }
-    if (en.value === undefined || ka.value === undefined) {
+    const en = tableValidOn(enInForce.value, validFrom);
+    const ka = tableValidOn(kaInForce.value, validFrom);
+    if ((en === undefined) !== (ka === undefined)) {
         return settle(context, validFrom, 'unresolved');
     }
-    const wanted = csvRequestCodes(tableCodes(en.value), validFrom, validFrom);
+    const wanted = csvRequestCodes(
+        enInForce.value === undefined ? requestedCodes : tableCodes(enInForce.value),
+        validFrom,
+        validFrom,
+    );
     let rows = csvRows;
-    if (rows === undefined || wanted.some((code) => !requestedCodes.includes(code))) {
-        const exported = await context.fetchRange(wanted, validFrom, validFrom);
-        if (exported.kind !== 'ok') {
-            return stoppedBy(exported);
+    if (rows === undefined || (en !== undefined && wanted.some((code) => !requestedCodes.includes(code)))) {
+        const exported = await exportForDate(context, validFrom, wanted);
+        if (!exported.ok) {
+            return exported;
         }
-        if (exported.value.length === 0) {
-            return err({ kind: 'empty_export' });
+        if (exported.value === 'deadline') {
+            return ok('deadline');
         }
         rows = exported.value;
     }
-    if (!checkAgreement(validFrom, en.value, ka.value, rows).ok) {
+    if (en === undefined || ka === undefined) {
+        return rows.length > 0
+            ? settle(context, validFrom, 'unresolved')
+            : removeIfStored(context, validFrom, observedAt);
+    }
+    if (!checkAgreement(validFrom, en, ka, rows).ok) {
         return settle(context, validFrom, 'unresolved');
     }
-    return commitIfChanged(context, { validFrom, en: en.value, ka: ka.value, rows, observedAt });
+    return commitIfChanged(context, { validFrom, en, ka, rows, observedAt });
 }

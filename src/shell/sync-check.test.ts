@@ -19,6 +19,8 @@ import {
 const SIGNAL = new AbortController().signal;
 const EN_2026_10_07 = tableFixture('en', '2026-10-07');
 const OCTOBER_7 = publication(EN_2026_10_07, { ka: tableFixture('ka', '2026-10-07') });
+/** The publication before it: NBG's JSON answers its table for 2026-10-07 once that date's table is withdrawn. */
+const OCTOBER_6 = publication(tableFixture('en', '2026-10-06'));
 const CODES = tableCodes(EN_2026_10_07);
 /** 10:00:02 in Tbilisi on Thursday 2026-10-08. */
 const NOW = new Date('2026-10-08T06:00:02Z');
@@ -200,5 +202,41 @@ describe('resolvePublication', () => {
         const outcome = await resolvePublication(context, date('2026-10-05'), [], CODES);
         expect(outcome).toEqual({ ok: true, value: 'unchanged' });
         expect(store.writes).toEqual([]);
+    });
+
+    it('removes the stored copy when the rows given, from an export covering the date, hold none for it', async () => {
+        const { store, fake, context } = await setUp({ nbg: [OCTOBER_6], stored: [OCTOBER_7] });
+        const outcome = await resolvePublication(context, date('2026-10-07'), [], CODES);
+        expect(outcome).toEqual({ ok: true, value: 'removed' });
+        expect(fake.requests).toEqual(['day:en:2026-10-07', 'day:ka:2026-10-07']);
+        expect(store.rawItem('rows', '2026-10-07')).toBeUndefined();
+        expect(context.counts.committed).toBe(1);
+    });
+
+    it('asks the CSV for the date alone when no rows were given and neither view has its table', async () => {
+        const { store, fake, context } = await setUp({ nbg: [OCTOBER_6], stored: [OCTOBER_7] });
+        fake.publishCsv(OCTOBER_7);
+        const before = store.writes.length;
+        const outcome = await resolvePublication(context, date('2026-10-07'), undefined, []);
+        expect(outcome).toEqual({ ok: true, value: 'unresolved' });
+        expect(fake.requests).toEqual([
+            'day:en:2026-10-07',
+            'day:ka:2026-10-07',
+            `range:${CODES.join(',')}:2026-10-07:2026-10-07`,
+        ]);
+        expect(store.writes.slice(before)).toEqual([{ operation: 'state', key: 'state/state' }]);
+        expect(store.rawItem('rows', '2026-10-07')).toBeDefined();
+        const state = await store.readState(SIGNAL);
+        expect(state.ok && state.value.unresolved).toEqual(['2026-10-07']);
+    });
+
+    it('fails with empty_export instead of removing when the export for the date alone is empty', async () => {
+        const { store, fake, context } = await setUp({ nbg: [OCTOBER_6], stored: [OCTOBER_7] });
+        const before = store.writes.length;
+        const outcome = await resolvePublication(context, date('2026-10-07'), undefined, []);
+        expect(outcome).toEqual({ ok: false, error: { kind: 'empty_export' } });
+        expect(fake.requests).toHaveLength(3);
+        expect(store.writes.slice(before)).toEqual([]);
+        expect(store.rawItem('rows', '2026-10-07')).toBeDefined();
     });
 });

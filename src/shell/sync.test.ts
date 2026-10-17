@@ -278,6 +278,28 @@ describe('runSync: which events run', () => {
         expect(result.syncResult).toBe('ok');
     });
 
+    it('skips an event 61 seconds in the future as early, with no store call, request or write', async () => {
+        const harness = await setUp();
+        const mark = harness.mark();
+        const result = await harness.run('2026-10-08T12:00', { now: tbilisi('2026-10-08T11:58:59') });
+        expect(result).toEqual(
+            line({
+                time: '2026-10-08T07:58:59.000Z',
+                scheduledTime: '2026-10-08T08:00:00.000Z',
+                syncResult: 'skipped',
+                syncDetail: 'early',
+            }),
+        );
+        expect(harness.since(mark)).toEqual({ requests: [], writes: [], sleeps: [], operations: [] });
+        expect((await harness.state()).lastRun).toEqual({});
+    });
+
+    it('runs an event exactly 60 seconds early', async () => {
+        const harness = await setUp();
+        const result = await harness.run('2026-10-08T10:00', { now: tbilisi('2026-10-08T09:59') });
+        expect(result.syncResult).toBe('ok');
+    });
+
     it('skips an event whose scheduled time is not a valid date as late, before any store call', async () => {
         const harness = await setUp();
         const mark = harness.mark();
@@ -820,7 +842,7 @@ describe('runSync: unresolved dates outside the check', () => {
         expect((await harness.state()).unresolved).toEqual([]);
     });
 
-    it('keeps a checked run ok when the retry fails, leaving the date unresolved', async () => {
+    it('fails a checked run on a failed retry, keeping the fresh-until of the check and the date unresolved', async () => {
         const { harness } = await withOldUnresolved();
         const client: NbgClient = {
             fetchDay: (day, language) =>
@@ -828,10 +850,41 @@ describe('runSync: unresolved dates outside the check', () => {
             fetchRange: (codes, start, end) => harness.fake.client.fetchRange(codes, start, end),
         };
         const result = await harness.run('2026-10-08T11:00', { client });
-        expect(result).toMatchObject({ syncResult: 'ok', syncDetail: null, checked: true, committed: 0 });
+        expect(result).toMatchObject({
+            syncResult: 'failed',
+            syncDetail: 'upstream_unavailable',
+            checked: true,
+            committed: 0,
+            nbgRequests: 2,
+        });
         const state = await harness.state();
         expect(state.unresolved).toEqual(['2026-09-28']);
         expect(state.freshUntil).toBe(at('2026-10-08T12:05'));
+    });
+
+    it('keeps a date the CSV still lists and the JSON lacks unresolved, asking the CSV for it alone', async () => {
+        const harness = await bootstrapped();
+        // NBG's JSON answers the 2026-09-20 table for 2026-09-28; its CSV still lists a table valid from 2026-09-28.
+        harness.fake.publishJson(publication(tableFrom('2026-09-20', 2.7001)));
+        harness.fake.publishCsv(publication(tableFrom('2026-09-28', 2.7123)));
+        const marked = await harness.store.updateState(
+            (state) => ({ next: markUnresolved(state, [date('2026-09-28')]), outcome: undefined }),
+            SIGNAL,
+        );
+        expect(marked.ok).toBe(true);
+        const mark = harness.mark();
+        const result = await harness.run('2026-10-08T11:00');
+        expect(result).toMatchObject({ syncResult: 'ok', syncDetail: null, checked: true, committed: 0 });
+        expect(harness.since(mark).requests).toEqual([
+            `range:${CODES}:2026-10-01:2026-10-09`,
+            'day:en:2026-09-28',
+            'day:ka:2026-09-28',
+            `range:${CODES}:2026-09-28:2026-09-28`,
+        ]);
+        // The claim and the fresh-until write; the mark already stands, and nothing is removed.
+        expect(harness.since(mark).writes.map((write) => write.operation)).toEqual(['state', 'state']);
+        expect(await held(harness.store, '2026-09-28')).toBeUndefined();
+        expect((await harness.state()).unresolved).toEqual(['2026-09-28']);
     });
 });
 

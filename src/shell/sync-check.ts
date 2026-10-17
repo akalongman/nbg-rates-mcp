@@ -25,6 +25,8 @@ const CSV_CHUNK_DAYS = 31;
 export interface CheckOutcome {
     readonly checked: boolean;
     readonly deadline: boolean;
+    /** The failure that ended the retries of unresolved dates outside the checked range, after the check succeeded. */
+    readonly retryFailure?: SyncFailure;
 }
 
 interface Chunk {
@@ -233,29 +235,34 @@ async function catchUp(
 
 /**
  * Retries each unresolved date outside the checked range, oldest first, while the deadline allows. A failure ends the
- * retries without failing the run: the check itself succeeded, and the date stays unresolved for the next run.
+ * retries; the date stays unresolved for the next run.
  */
-async function retryOutside(context: SyncContext, state: MirrorState, range: Chunk): Promise<'done' | 'deadline'> {
+async function retryOutside(
+    context: SyncContext,
+    state: MirrorState,
+    range: Chunk,
+): Promise<Result<'done' | 'deadline', SyncFailure>> {
     for (const validFrom of state.unresolved) {
         if (validFrom >= range.start && validFrom <= range.end) {
             continue;
         }
         const outcome = await resolvePublication(context, validFrom, undefined, []);
         if (!outcome.ok) {
-            return 'done';
+            return outcome;
         }
         if (outcome.value === 'deadline') {
-            return 'deadline';
+            return ok('deadline');
         }
     }
-    return 'done';
+    return ok('done');
 }
 
 /**
  * The hourly check, from `state` as the run claimed it. Without a span it bootstraps one over the last
  * LATE_PUBLICATION_DAYS days and tomorrow; with one it covers from `min(span.end, today) - LATE_PUBLICATION_DAYS` to
  * tomorrow in CSV chunks of at most CSV_CHUNK_DAYS days. A check whose span reaches tomorrow records the fresh-until
- * time due after the scheduled time and is `checked`. Unresolved dates outside the range are retried after it.
+ * time due after the scheduled time and is `checked`. Unresolved dates outside the range are retried after it; a
+ * failure there is answered as `retryFailure` beside the check's own outcome, which stands.
  */
 export async function runHourlyCheck(
     context: SyncContext,
@@ -292,5 +299,8 @@ export async function runHourlyCheck(
         checked = true;
     }
     const retried = await retryOutside(context, state, range);
-    return ok({ checked, deadline: retried === 'deadline' });
+    if (!retried.ok) {
+        return ok({ checked, deadline: false, retryFailure: retried.error });
+    }
+    return ok({ checked, deadline: retried.value === 'deadline' });
 }
