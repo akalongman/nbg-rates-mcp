@@ -21,7 +21,8 @@ export interface TbilisiClock {
 }
 
 const MINUTE_MILLIS = 60_000;
-const MINUTES_PER_HOUR = 60;
+export const MINUTES_PER_HOUR = 60;
+export const HOUR_MILLIS = MINUTES_PER_HOUR * MINUTE_MILLIS;
 const FRIDAY = 5;
 const WEEKDAYS: Readonly<Record<string, number>> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 const CLOCK_TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;

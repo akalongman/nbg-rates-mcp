@@ -1,6 +1,7 @@
 import * as z from 'zod';
-import { parseCurrencyCode } from './currency-code.js';
-import { NBG_ARCHIVE_START, parseCalendarDate } from './dates.js';
+import { isExactCurrencyCode } from './currency-code.js';
+import { NBG_ARCHIVE_START } from './dates.js';
+import { calendarDateSchema as calendarDate, formatIssues } from './schema.js';
 import type { SyncKind } from './sync-schedule.js';
 import { err, ok, type CalendarDate, type Result } from './types.js';
 
@@ -45,19 +46,7 @@ export interface MirrorState {
 
 export const EMPTY_MIRROR_STATE: MirrorState = { revision: 0, unresolved: [], lastRun: {}, refetch: {}, recheck: {} };
 
-const calendarDate = z.string().transform((value, context) => {
-    const parsed = parseCalendarDate(value);
-    if (!parsed.ok) {
-        context.addIssue('not a real YYYY-MM-DD calendar date');
-        return z.NEVER;
-    }
-    return parsed.value;
-});
-/** An uppercase three-letter code as parseCurrencyCode accepts it, unchanged by its normalisation. */
-const currencyCode = z.string().refine((value) => {
-    const parsed = parseCurrencyCode(value);
-    return parsed.ok && parsed.value === value;
-}, 'not a currency code');
+const currencyCode = z.string().refine(isExactCurrencyCode, 'not a currency code');
 const epochMillis = z.int().nonnegative();
 const count = z.int().nonnegative();
 
@@ -96,12 +85,7 @@ const mirrorStateSchema = z.object({
 export function parseMirrorState(json: unknown): Result<MirrorState, string> {
     const parsed = mirrorStateSchema.safeParse(json);
     if (!parsed.success) {
-        return err(
-            parsed.error.issues
-                .slice(0, 3)
-                .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-                .join('; '),
-        );
+        return err(formatIssues(parsed.error.issues));
     }
     return ok(parsed.data);
 }

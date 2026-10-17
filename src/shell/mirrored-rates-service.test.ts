@@ -10,6 +10,7 @@ import {
     type MemoryWrite,
 } from '../../test/helpers/memory-mirror-store.js';
 import { publication, syntheticTable, tableFixture } from '../../test/helpers/publications.js';
+import { counted } from '../../test/helpers/sync-harness.js';
 import { code, date } from '../../test/helpers/values.js';
 import { addDays } from '../core/dates.js';
 import type { MirrorSpan } from '../core/mirror.js';
@@ -66,20 +67,6 @@ function consecutivePublications(first: string, count: number): ReadonlyArray<Mi
             }),
         ),
     );
-}
-
-/** The service's calls to `service`, listed as `<name>.<method>` in `asked`. */
-function counted(name: string, service: RatesService, asked: string[]): RatesService {
-    return {
-        getSnapshot(args) {
-            asked.push(`${name}.getSnapshot`);
-            return service.getSnapshot(args);
-        },
-        getHistory(args) {
-            asked.push(`${name}.getHistory`);
-            return service.getHistory(args);
-        },
-    };
 }
 
 interface Options {

@@ -4,9 +4,11 @@ export const TBILISI_TIME_ZONE = 'Asia/Tbilisi';
 export const MAX_HISTORY_DAYS = 366;
 /** The first day the NBG archive has any rate (USD only); 1995-10-13 and earlier are empty. Probed 2026-10-08. */
 export const NBG_ARCHIVE_START = '1995-10-14';
+/** How many days back NBG may still publish a table valid from a past day: the late-publication window. */
+export const LATE_PUBLICATION_DAYS = 7;
+export const DAY_MILLIS = 86_400_000;
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
-const DAY_MILLIS = 86_400_000;
 
 /** Builds UTC midnight with setUTCFullYear, because Date.UTC maps the years 0 to 99 onto 1900 to 1999. */
 function utcMidnight(year: number, month: number, day: number): Date {

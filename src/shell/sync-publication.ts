@@ -120,7 +120,9 @@ export function syncNbgFailure(error: RatesError): NbgFailure {
 }
 
 /** A fetch that ended the work: the deadline, or a failure. */
-function stoppedBy(fetched: Exclude<SyncFetch<unknown>, { readonly kind: 'ok' }>): Result<'deadline', SyncFailure> {
+export function stoppedBy(
+    fetched: Exclude<SyncFetch<unknown>, { readonly kind: 'ok' }>,
+): Result<'deadline', SyncFailure> {
     return fetched.kind === 'deadline' ? ok('deadline') : err(syncNbgFailure(fetched.error));
 }
 

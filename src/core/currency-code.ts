@@ -11,3 +11,9 @@ export function parseCurrencyCode(input: string): Result<CurrencyCode, RatesErro
     }
     return ok(normalised as CurrencyCode);
 }
+
+/** An uppercase three-letter code as parseCurrencyCode accepts it, unchanged by its normalisation. */
+export function isExactCurrencyCode(value: string): value is CurrencyCode {
+    const parsed = parseCurrencyCode(value);
+    return parsed.ok && parsed.value === value;
+}

@@ -1,8 +1,5 @@
-import { TBILISI_TIME_ZONE, addDays, todayIn } from '../core/dates.js';
+import { LATE_PUBLICATION_DAYS, TBILISI_TIME_ZONE, addDays, todayIn } from '../core/dates.js';
 import type { CalendarDate, Language, RatesSnapshot } from '../core/types.js';
-
-/** How many days back NBG may still publish a table valid from a past day. */
-const LATE_PUBLICATION_DAYS = 7;
 
 export interface SnapshotCache {
     /**

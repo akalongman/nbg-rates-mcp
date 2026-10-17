@@ -15,13 +15,19 @@ import { parseCalendarDate } from '../core/dates.js';
 import { EMPTY_MIRROR_STATE, parseMirrorState, type MirrorState } from '../core/mirror.js';
 import { parseStoredRows } from '../core/mirror-publication.js';
 import type { NbgCsvRow } from '../core/nbg-csv.js';
-import { parseNbgResponse, type NbgDay } from '../core/nbg-schema.js';
+import { parseStoredDay } from '../core/nbg-schema.js';
 import { err, ok, type CalendarDate, type Language, type Result } from '../core/types.js';
-import type { MirrorStore, StoredRows, StoredTable, StoredTables, StoreError } from './mirror-store.js';
+import {
+    UPDATE_ATTEMPTS,
+    type MirrorStore,
+    type StoredRows,
+    type StoredTable,
+    type StoredTables,
+    type StoreError,
+} from './mirror-store.js';
 
 type Item = Record<string, AttributeValue>;
 
-const UPDATE_ATTEMPTS = 5;
 /** BatchWriteItem's limit of requests per call. */
 const BATCH_SIZE = 25;
 /** A commit's condition on each item: absent, a past table, or an older observation. */
@@ -129,15 +135,6 @@ function decodeJson<T>(item: Item, name: string, parse: (json: unknown) => Resul
     return parsed.ok ? parsed : storeFailed(`${itemName(item)}: ${parsed.error}`);
 }
 
-function parseDay(json: unknown): Result<NbgDay, string> {
-    const parsed = parseNbgResponse([json]);
-    if (!parsed.ok) {
-        return err('detail' in parsed.error ? parsed.error.detail : parsed.error.kind);
-    }
-    const [day] = parsed.value;
-    return day === undefined ? err('no table') : ok(day);
-}
-
 function decodeRows(item: Item): Result<StoredRows, StoreError> {
     const validFrom = decodeValidFrom(item);
     if (!validFrom.ok) {
@@ -162,7 +159,7 @@ function decodeTable(item: Item): Result<StoredTable, StoreError> {
     if (!validFrom.ok) {
         return validFrom;
     }
-    const day = decodeJson(item, 'day', parseDay);
+    const day = decodeJson(item, 'day', parseStoredDay);
     if (!day.ok) {
         return day;
     }

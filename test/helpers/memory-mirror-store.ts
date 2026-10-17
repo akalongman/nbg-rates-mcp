@@ -1,9 +1,16 @@
 import { EMPTY_MIRROR_STATE, parseMirrorState, type MirrorState } from '../../src/core/mirror.js';
 import { parseStoredRows, type MirrorPublication } from '../../src/core/mirror-publication.js';
 import type { NbgCsvRow } from '../../src/core/nbg-csv.js';
-import { parseNbgResponse, type NbgDay } from '../../src/core/nbg-schema.js';
+import { parseStoredDay } from '../../src/core/nbg-schema.js';
 import { err, ok, type CalendarDate, type Language, type Result } from '../../src/core/types.js';
-import type { MirrorStore, StoredRows, StoredTable, StoredTables, StoreError } from '../../src/shell/mirror-store.js';
+import {
+    UPDATE_ATTEMPTS,
+    type MirrorStore,
+    type StoredRows,
+    type StoredTable,
+    type StoredTables,
+    type StoreError,
+} from '../../src/shell/mirror-store.js';
 
 export interface MemoryWrite {
     readonly operation: 'state' | 'commit' | 'remove' | 'fill' | 'archive' | 'replace';
@@ -46,8 +53,6 @@ type TableItem = {
     readonly observedAt?: number;
 };
 
-const UPDATE_ATTEMPTS = 5;
-
 function storeFailed(detail: string): { readonly ok: false; readonly error: StoreError } {
     return err({ kind: 'store_failed', detail });
 }
@@ -88,15 +93,6 @@ function ascending<T extends { readonly sk: CalendarDate }>(items: Iterable<T>):
     return [...items].sort((left, right) => (left.sk < right.sk ? -1 : left.sk > right.sk ? 1 : 0));
 }
 
-function parseDay(json: unknown): Result<NbgDay, string> {
-    const parsed = parseNbgResponse([json]);
-    if (!parsed.ok) {
-        return err('detail' in parsed.error ? parsed.error.detail : parsed.error.kind);
-    }
-    const [day] = parsed.value;
-    return day === undefined ? err('no table') : ok(day);
-}
-
 /** Reads a JSON attribute back through the parser the DynamoDB store uses for it. */
 function decode<T>(
     item: { readonly pk: string; readonly sk: string },
@@ -119,7 +115,7 @@ function decodeRows(item: RowsItem): Result<StoredRows, StoreError> {
 }
 
 function decodeTable(item: TableItem): Result<StoredTable, StoreError> {
-    const day = decode(item, item.day, parseDay);
+    const day = decode(item, item.day, parseStoredDay);
     if (!day.ok) {
         return day;
     }
@@ -259,8 +255,8 @@ export function createMemoryMirrorStore(): MemoryMirrorStore {
                 ) {
                     continue; // outside the range, or a past table
                 }
-                const en = decode(enItem, enItem.day, parseDay);
-                const ka = decode(kaItem, kaItem.day, parseDay);
+                const en = decode(enItem, enItem.day, parseStoredDay);
+                const ka = decode(kaItem, kaItem.day, parseStoredDay);
                 if (!en.ok) {
                     return en;
                 }

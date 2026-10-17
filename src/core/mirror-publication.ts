@@ -1,9 +1,10 @@
 import * as z from 'zod';
-import { parseCurrencyCode } from './currency-code.js';
-import { calendarDateFromTimestamp, parseCalendarDate } from './dates.js';
+import { isExactCurrencyCode } from './currency-code.js';
+import { calendarDateFromTimestamp } from './dates.js';
 import { compareCsvRows } from './history.js';
 import type { NbgCsvRow } from './nbg-csv.js';
 import { hasAtMostFourDecimals, isNbgQuantity, type NbgDay } from './nbg-schema.js';
+import { calendarDateSchema as calendarDate, formatIssues } from './schema.js';
 import { err, ok, type CalendarDate, type CurrencyCode, type Result } from './types.js';
 
 /** One publication as fetched: NBG's English and Georgian tables and the CSV export's rows for its valid-from date. */
@@ -40,11 +41,10 @@ export function tableCodes(day: NbgDay): ReadonlyArray<CurrencyCode> {
 
 /** Throws on anything but an uppercase three-letter code: the codes come from validated tables or rows. */
 function exactCurrencyCode(candidate: string): CurrencyCode {
-    const parsed = parseCurrencyCode(candidate);
-    if (!parsed.ok || parsed.value !== candidate) {
+    if (!isExactCurrencyCode(candidate)) {
         throw new Error(`not a currency code: ${candidate}`);
     }
-    return parsed.value;
+    return candidate;
 }
 
 /** The codes to request: AZN is left out when [start, end] reaches into the gap. */
@@ -247,15 +247,6 @@ export function exportRows(
         .flatMap((entry) => entry.rows.filter((row) => wanted.has(row.code)));
 }
 
-const calendarDate = z.string().transform((value, context) => {
-    const parsed = parseCalendarDate(value);
-    if (!parsed.ok) {
-        context.addIssue('not a real YYYY-MM-DD calendar date');
-        return z.NEVER;
-    }
-    return parsed.value;
-});
-
 const storedRowsSchema = z.array(
     z.object({
         code: z.string().regex(/^[A-Z]{3}$/),
@@ -269,12 +260,7 @@ const storedRowsSchema = z.array(
 export function parseStoredRows(json: unknown): Result<ReadonlyArray<NbgCsvRow>, string> {
     const parsed = storedRowsSchema.safeParse(json);
     if (!parsed.success) {
-        return err(
-            parsed.error.issues
-                .slice(0, 3)
-                .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-                .join('; '),
-        );
+        return err(formatIssues(parsed.error.issues));
     }
     return ok(parsed.data);
 }

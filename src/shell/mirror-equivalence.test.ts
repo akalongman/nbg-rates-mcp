@@ -5,10 +5,12 @@ import * as z from 'zod';
 import { publication, syntheticTable, tableFixture } from '../../test/helpers/publications.js';
 import {
     at,
+    clockOf,
     expectedHeld,
     held,
     mirroredService,
     OCTOBER,
+    rate,
     setUp,
     tableFrom,
     tbilisi,
@@ -41,10 +43,6 @@ function daysFrom(first: string, last: string): ReadonlyArray<string> {
 /** NBG's table valid from `day` quoting `rates`, with its Georgian twin and its CSV rows. */
 function nbgTable(day: string, rates: Readonly<Record<string, number>>, writtenAt?: string): MirrorPublication {
     return publication(syntheticTable(day, rates, writtenAt === undefined ? {} : { writtenAt }));
-}
-
-function rate(base: number, step: number): number {
-    return Number((base + step / 1000).toFixed(4));
 }
 
 /** NBG's first tables, USD only; before September 2021 every calendar day has a table of its own. */
@@ -101,10 +99,6 @@ const THURSDAY = '2026-10-08';
 function minuteOf(clock: string): number {
     const [hours = 0, minutes = 0] = clock.split(':').map(Number);
     return hours * 60 + minutes;
-}
-
-function clockOf(minuteOfDay: number): string {
-    return `${String(Math.floor(minuteOfDay / 60)).padStart(2, '0')}:${String(minuteOfDay % 60).padStart(2, '0')}`;
 }
 
 /**

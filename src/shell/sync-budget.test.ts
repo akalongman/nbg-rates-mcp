@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { publication, syntheticTable } from '../../test/helpers/publications.js';
-import { at, OCTOBER, setUp, tableFrom, tbilisi, type Harness } from '../../test/helpers/sync-harness.js';
+import {
+    at,
+    clockOf,
+    OCTOBER,
+    rate,
+    setUp,
+    tableFrom,
+    tbilisi,
+    type Harness,
+} from '../../test/helpers/sync-harness.js';
 import { date } from '../../test/helpers/values.js';
 import { addDays, NBG_ARCHIVE_START } from '../core/dates.js';
 import type { MirrorPublication } from '../core/mirror-publication.js';
@@ -13,20 +22,12 @@ import type { SyncLogLine } from './sync.js';
 
 const SPAN_START = '2026-09-01';
 
-function rate(base: number, step: number): number {
-    return Number((base + step / 1000).toFixed(4));
-}
-
-function pad(value: number): string {
-    return String(value).padStart(2, '0');
-}
-
 /** The first day of each month from October 1995 to September 2026, October 1995's being NBG_ARCHIVE_START. */
 function monthStarts(): ReadonlyArray<string> {
     const starts: string[] = [NBG_ARCHIVE_START];
     for (let year = 1995; year <= 2026; year += 1) {
         for (let month = 1; month <= 12; month += 1) {
-            const start = `${year}-${pad(month)}-01`;
+            const start = `${year}-${String(month).padStart(2, '0')}-01`;
             if (start > NBG_ARCHIVE_START && start <= '2026-09-01') {
                 starts.push(start);
             }
@@ -106,7 +107,7 @@ async function runDay(
 ): Promise<ReadonlyArray<SyncLogLine>> {
     const lines: SyncLogLine[] = [];
     for (let minute = 0; minute < 24 * 60; minute += 1) {
-        const clock = `${pad(Math.floor(minute / 60))}:${pad(minute % 60)}`;
+        const clock = clockOf(minute);
         before?.(clock);
         const wallClock = `${day}T${clock}`;
         if (minute % 60 === 0) {
@@ -194,7 +195,7 @@ describe("the NBG requests of the archive rows' fill", () => {
         const perRun: number[] = [];
         for (let hour = 0; hour < 24 && (await harness.state()).rowsStart !== NBG_ARCHIVE_START; hour += 1) {
             const mark = harness.mark();
-            expect(await harness.run(`2026-10-08T${pad(hour)}:00`)).toMatchObject({ syncResult: 'ok' });
+            expect(await harness.run(`2026-10-08T${clockOf(hour * 60)}`)).toMatchObject({ syncResult: 'ok' });
             perRun.push(harness.since(mark).requests.filter(beforeSpan).length);
         }
         const state = await harness.state();

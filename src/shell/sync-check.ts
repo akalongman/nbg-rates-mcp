@@ -1,4 +1,4 @@
-import { addDays } from '../core/dates.js';
+import { addDays, LATE_PUBLICATION_DAYS } from '../core/dates.js';
 import {
     extendSpanEnd,
     inSpan,
@@ -31,8 +31,6 @@ import {
     type SyncFailure,
 } from './sync-publication.js';
 
-/** The late-publication window's days before today; cache.ts keeps the same value as LATE_PUBLICATION_DAYS. */
-const LATE_PUBLICATION_DAYS = 7;
 /** The longest range one CSV request of the check covers. */
 const CSV_CHUNK_DAYS = 31;
 

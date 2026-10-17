@@ -5,6 +5,8 @@ import type { NbgDay } from '../core/nbg-schema.js';
 import type { CalendarDate, Language, Result } from '../core/types.js';
 
 export const STORE_OPERATION_TIMEOUT_MS = 2_000;
+/** updateState's attempts in all: its first and the re-reads after a revision conflict. */
+export const UPDATE_ATTEMPTS = 5;
 
 export interface StoreError {
     readonly kind: 'store_failed';
@@ -76,10 +78,10 @@ export interface MirrorStore extends MirrorRequestStore {
         signal: AbortSignal,
     ): Promise<Result<ReadonlyArray<StoredTables>, StoreError>>;
     /**
-     * Compare-and-set on revision, re-read and re-applied on a conflict, at most 5 attempts in all; `next` undefined
-     * writes nothing. The store sets the written state's revision. `change` may return a promise, which the store
-     * awaits between its read and its compare-and-set; production callers pass the synchronous transitions of
-     * core/mirror.ts.
+     * Compare-and-set on revision, re-read and re-applied on a conflict, at most UPDATE_ATTEMPTS (5) attempts in all;
+     * `next` undefined writes nothing. The store sets the written state's revision. `change` may return a promise,
+     * which the store awaits between its read and its compare-and-set; production callers pass the synchronous
+     * transitions of core/mirror.ts.
      */
     updateState<T>(
         change: (state: MirrorState) => StateChange<T> | Promise<StateChange<T>>,

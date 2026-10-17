@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it, vi, type Mock } from 'vitest';
+import { failingNbg } from '../test/helpers/failing-nbg.js';
 import { startFixtureServer } from '../test/helpers/fixture-server.js';
 import { toolCall } from '../test/helpers/mcp-http.js';
 import { createMemoryMirrorStore, seedMirror } from '../test/helpers/memory-mirror-store.js';
@@ -44,28 +45,6 @@ function answered(result: ApiGatewayV2Result | undefined): ApiGatewayV2Result {
 const NOW = new Date('2026-10-08T06:00:02Z');
 const SCHEDULED = '2026-10-08T06:00:00Z';
 const CONTEXT: LambdaContext = { getRemainingTimeInMillis: () => 25_000 };
-
-/**
- * Stubs fetch with an NBG that answers 503 to everything, and lists each request's per-try timeout: the milliseconds
- * of the AbortSignal.timeout whose signal the request carries.
- */
-function failingNbg(): { readonly fetch: Mock<typeof fetch>; readonly timeouts: ReadonlyArray<number> } {
-    const timeout = AbortSignal.timeout.bind(AbortSignal);
-    const issued = new Map<AbortSignal, number>();
-    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
-        const signal = timeout(ms);
-        issued.set(signal, ms);
-        return signal;
-    });
-    const timeouts: number[] = [];
-    const fetchStub = vi.fn<typeof fetch>((_url, init) => {
-        const signal = init?.signal ?? undefined;
-        timeouts.push(signal === undefined ? Number.NaN : (issued.get(signal) ?? Number.NaN));
-        return Promise.resolve(new Response('down', { status: 503 }));
-    });
-    vi.stubGlobal('fetch', fetchStub);
-    return { fetch: fetchStub, timeouts };
-}
 
 /** The fakes a handler is built over; `sync` is left out of `deps` when `withSync` is false. */
 function fakes(withSync: boolean): {

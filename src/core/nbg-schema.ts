@@ -1,5 +1,6 @@
 import * as z from 'zod';
 import { parseCalendarDate } from './dates.js';
+import { formatIssues } from './schema.js';
 import { err, ok, type RatesError, type Result } from './types.js';
 
 export function isPowerOfTen(value: number): boolean {
@@ -55,11 +56,17 @@ export type NbgDay = z.infer<typeof nbgDaySchema>;
 export function parseNbgResponse(json: unknown): Result<ReadonlyArray<NbgDay>, RatesError> {
     const parsed = nbgResponseSchema.safeParse(json);
     if (!parsed.success) {
-        const detail = parsed.error.issues
-            .slice(0, 3)
-            .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-            .join('; ');
-        return err({ kind: 'upstream_shape_changed', detail });
+        return err({ kind: 'upstream_shape_changed', detail: formatIssues(parsed.error.issues) });
     }
     return ok(parsed.data);
+}
+
+/** One table as a mirror store holds it, read back through parseNbgResponse; the error is the parse's detail. */
+export function parseStoredDay(json: unknown): Result<NbgDay, string> {
+    const parsed = parseNbgResponse([json]);
+    if (!parsed.ok) {
+        return err('detail' in parsed.error ? parsed.error.detail : parsed.error.kind);
+    }
+    const [day] = parsed.value;
+    return day === undefined ? err('no table') : ok(day);
 }

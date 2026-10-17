@@ -1,4 +1,4 @@
-import { addDays, NBG_ARCHIVE_START, parseCalendarDate } from '../core/dates.js';
+import { addDays, DAY_MILLIS, LATE_PUBLICATION_DAYS, NBG_ARCHIVE_START, parseCalendarDate } from '../core/dates.js';
 import { extendRowsStart, inSpan, recordFillProgress, type FillProgress, type MirrorState } from '../core/mirror.js';
 import {
     changedPublications,
@@ -13,28 +13,18 @@ import type { NbgCsvRow } from '../core/nbg-csv.js';
 import {
     ARCHIVE_YEARS_PER_RUN,
     DAILY_REFETCH_FROM_HOUR,
+    HOUR_MILLIS,
+    MINUTES_PER_HOUR,
     RECHECK_CYCLE_DAYS,
     RECHECK_SLICE_EVERY_HOURS,
     tbilisiClock,
 } from '../core/sync-schedule.js';
 import { err, ok, type CalendarDate, type Result } from '../core/types.js';
 import { STORE_OPERATION_TIMEOUT_MS, type StoredRows, type StoredTables } from './mirror-store.js';
-import {
-    applyToState,
-    resolvePublication,
-    syncNbgFailure,
-    type SyncContext,
-    type SyncFailure,
-    type SyncFetch,
-} from './sync-publication.js';
+import { applyToState, resolvePublication, stoppedBy, type SyncContext, type SyncFailure } from './sync-publication.js';
 
-/** The late-publication window's days before today; sync-check.ts and cache.ts keep the same value. */
-const LATE_PUBLICATION_DAYS = 7;
 /** The re-check reaches to the day before the hourly check's range. */
 const RECHECK_LAST_DAY_OFFSET = LATE_PUBLICATION_DAYS + 1;
-const MINUTES_PER_HOUR = 60;
-const HOUR_MILLIS = 3_600_000;
-const DAY_MILLIS = 86_400_000;
 
 /** What one of the hourly kind's steps after its check did: its work, nothing because it was not due, or stopped. */
 export type StepOutcome = 'done' | 'not_due' | 'deadline';
@@ -42,11 +32,6 @@ export type StepOutcome = 'done' | 'not_due' | 'deadline';
 interface DateRange {
     readonly start: CalendarDate;
     readonly end: CalendarDate;
-}
-
-/** A fetch that ended the work: the deadline, or a failure. */
-function stoppedBy(fetched: Exclude<SyncFetch<unknown>, { readonly kind: 'ok' }>): Result<'deadline', SyncFailure> {
-    return fetched.kind === 'deadline' ? ok('deadline') : err(syncNbgFailure(fetched.error));
 }
 
 function later(left: CalendarDate, right: CalendarDate): CalendarDate {

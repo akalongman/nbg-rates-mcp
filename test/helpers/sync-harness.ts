@@ -35,6 +35,16 @@ export const OCTOBER: ReadonlyArray<MirrorPublication> = [
 export const CODES = tableCodes(tableFixture('en', '2026-10-07')).join(',');
 export const UNAVAILABLE: RatesError = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
 
+/** `base` plus `step` thousandths, to four decimals: a rate of its own for each of a run of synthetic tables. */
+export function rate(base: number, step: number): number {
+    return Number((base + step / 1000).toFixed(4));
+}
+
+/** A minute of the day as HH:MM: 1050 is '17:30'. */
+export function clockOf(minuteOfDay: number): string {
+    return `${String(Math.floor(minuteOfDay / 60)).padStart(2, '0')}:${String(minuteOfDay % 60).padStart(2, '0')}`;
+}
+
 /** An instant from Tbilisi wall-clock time, UTC+4 all year: '2026-10-08T10:00' is 06:00 UTC. */
 export function tbilisi(wallClock: string): Date {
     return new Date(`${wallClock.length === 16 ? `${wallClock}:00` : wallClock}+04:00`);
@@ -234,7 +244,8 @@ export async function bootstrapped(nbg?: ReadonlyArray<MirrorPublication>): Prom
     return harness;
 }
 
-function counted(name: string, service: RatesService, asked: string[]): RatesService {
+/** The service's calls to `service`, listed as `<name>.<method>` in `asked`. */
+export function counted(name: string, service: RatesService, asked: string[]): RatesService {
     return {
         getSnapshot(args) {
             asked.push(`${name}.getSnapshot`);
