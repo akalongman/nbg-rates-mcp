@@ -603,6 +603,55 @@ describe('runWindowCheck: the publication window', () => {
         expect(await harness.state()).toEqual(newer);
     });
 
+    it('starts the quiet count again after a change an older run committed but has not yet counted', async () => {
+        const harness = await friday();
+        harness.fake.publish(SATURDAY);
+        for (let minute = 1; minute <= 10; minute += 1) {
+            expect(await windowRun(harness, FRIDAY, minute)).toMatchObject({ syncResult: 'ok' });
+        }
+        expect((await harness.state()).window).toMatchObject({ quietRuns: 9, stopped: false });
+
+        // NBG's second write changes USD; 2026-09-28, still unresolved, keeps the 17:11 run busy after its commit.
+        const changed = publication(withRates(SATURDAY.en, { USD: 2.7155 }));
+        harness.fake.publish(changed);
+        const old = publication(tableFrom('2026-09-28', 2.6912));
+        harness.fake.publish(old);
+        const marked = await harness.store.updateState(
+            (state) => ({ next: markUnresolved(state, [date('2026-09-28')]), outcome: undefined }),
+            SIGNAL,
+        );
+        expect(marked.ok).toBe(true);
+        const oldAtNbg = createFakeNbg([old]);
+        const release = oldAtNbg.hold();
+        const client: NbgClient = {
+            fetchDay: (day, language) =>
+                (day === '2026-09-28' ? oldAtNbg : harness.fake).client.fetchDay(day, language),
+            fetchRange: (codes, start, end) =>
+                (start === '2026-09-28' ? oldAtNbg : harness.fake).client.fetchRange(codes, start, end),
+        };
+        const slow = windowRun(harness, FRIDAY, 11, { client });
+        await vi.waitFor(() => {
+            expect(oldAtNbg.requests).toEqual(['day:en:2026-09-28']);
+        });
+        expect(await held(harness.store, '2026-10-17')).toEqual(expectedHeld(changed, at('2026-10-16T17:11:02')));
+
+        // The 17:12 run finds the new table stored and equal to NBG's: one quiet run since the change, not ten.
+        expect(await windowRun(harness, FRIDAY, 12)).toMatchObject({ syncResult: 'ok', checked: true });
+        const afterChange = await harness.state();
+        expect(afterChange.window).toMatchObject({ quietRuns: 1, stopped: false, at: at('2026-10-16T17:12') });
+        expect(afterChange.freshUntil).toBe(at('2026-10-16T17:15'));
+        release();
+        expect(await slow).toMatchObject({ syncResult: 'ok', committed: 1 });
+        expect((await harness.state()).window).toEqual(afterChange.window);
+
+        for (let minute = 13; minute <= 20; minute += 1) {
+            expect(await windowRun(harness, FRIDAY, minute)).toMatchObject({ syncResult: 'ok', nbgRequests: 1 });
+        }
+        expect((await harness.state()).window).toMatchObject({ quietRuns: 9, stopped: false });
+        expect(await windowRun(harness, FRIDAY, 21)).toMatchObject({ syncResult: 'ok', nbgRequests: 1 });
+        expect((await harness.state()).window).toMatchObject({ quietRuns: 10, stopped: true });
+    });
+
     it('asks every source again while tomorrow is unresolved, even when its English table is the stored one', async () => {
         const harness = await friday();
         harness.fake.publish(SATURDAY);

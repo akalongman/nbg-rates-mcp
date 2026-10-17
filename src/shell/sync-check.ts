@@ -319,12 +319,14 @@ export async function runHourlyCheck(
 }
 
 /** What one window run saw of tomorrow's publication. */
-interface TomorrowSeen {
-    /** NBG's English table for tomorrow is the stored one (write stamps aside), and tomorrow is not unresolved. */
-    readonly quiet: boolean;
-    /** The mirror holds tomorrow's publication as NBG's sources agree on it. */
-    readonly committed: boolean;
-}
+type TomorrowSeen =
+    /**
+     * Quiet: NBG's English table for tomorrow is the stored one (write stamps aside), and tomorrow is not unresolved.
+     * `storedObservedAt` is the stored table's observation, which dates the commit the run compared against.
+     */
+    | { readonly quiet: true; readonly storedObservedAt: number | undefined }
+    /** Anything else; `committed` when the mirror holds tomorrow's publication as NBG's sources agree on it. */
+    | { readonly quiet: false; readonly committed: boolean };
 
 const NOT_THERE: TomorrowSeen = { quiet: false, committed: false };
 
@@ -372,7 +374,7 @@ async function checkTomorrow(
             return stored;
         }
         if (stored.value !== undefined && sameTable(stored.value.day, en)) {
-            return ok({ quiet: true, committed: true });
+            return ok({ quiet: true, storedObservedAt: stored.value.observedAt });
         }
     }
     const codes = csvRequestCodes(tableCodes(en), tomorrow, tomorrow);
@@ -388,13 +390,24 @@ async function checkTomorrow(
 }
 
 /**
- * The window state this run leaves, from the window the state holds for the same Tbilisi date: a quiet run adds one
- * to its quiet runs and any other run sets them to 0; once committed, the publication stays committed for the day.
+ * A quiet run's count. It continues the stored window's count only when the table the run matched was observed
+ * before that window's run was due, so that count can include the commit; a later observation is a commit the count
+ * may predate (a run that committed a change and has not yet written its window), and the count starts again at 1.
+ * Every error this makes is a later stop, never an earlier one.
+ */
+function quietCount(previous: WindowState | undefined, storedObservedAt: number | undefined): number {
+    const counted = previous !== undefined && storedObservedAt !== undefined && storedObservedAt < previous.at;
+    return counted ? previous.quietRuns + 1 : 1;
+}
+
+/**
+ * The window state this run leaves, from the window the state holds for the same Tbilisi date: a quiet run counts
+ * on (quietCount) and any other run sets the count to 0; once committed, the publication stays committed for the day.
  */
 function nextWindow(current: MirrorState, seen: TomorrowSeen, today: CalendarDate, at: number): WindowState {
     const previous = current.window?.date === today ? current.window : undefined;
-    const quietRuns = seen.quiet ? (previous?.quietRuns ?? 0) + 1 : 0;
-    const committed = seen.committed || previous?.committed === true;
+    const quietRuns = seen.quiet ? quietCount(previous, seen.storedObservedAt) : 0;
+    const committed = seen.quiet || seen.committed || previous?.committed === true;
     return { date: today, committed, quietRuns, stopped: committed && quietRuns >= QUIET_RUNS_TO_STOP, at };
 }
 
