@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## 0.7.0 - 2026-10-18
 
-Added: the hosted endpoint can answer from a mirror of NBG's data in DynamoDB, named by `NBG_RATES_MIRROR_TABLE`. A scheduled sync in the same function keeps the recent tables and the whole archive's CSV rows equal to NBG (hourly, and every minute from 17:00 on weekdays until the next day's table settles), and the first request for a past date keeps a copy of that date's table once it matches the rows. When the mirror is out of date or lacks a date, requests ask NBG as before, and during an NBG outage they get the mirror's rate. Without the variable nothing changes, and local installs never use it.
+Added: the hosted endpoint can answer from a mirror of NBG's data in DynamoDB, named by `NBG_RATES_MIRROR_TABLE`. A scheduled sync in the same function keeps the recent tables and the whole archive's CSV rows equal to NBG (hourly, and every minute from 17:00 to 17:30 on weekdays, stopping sooner once the next day's table settles), and the first request for a past date keeps a copy of that date's table once it matches the rows. When the mirror is out of date or lacks a date, requests ask NBG as before, and during an NBG outage they get the mirror's rate. Without the variable nothing changes, and local installs never use it.
 
 Changed: the privacy text says that the hosted copy keeps NBG's table for a past date the first time anyone asks, without noting who asked or when.
 
