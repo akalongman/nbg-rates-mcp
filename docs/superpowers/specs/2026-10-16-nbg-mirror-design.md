@@ -438,14 +438,15 @@ that bound on 2026-10-17.
 - The archive rows are fetched once, after the first successful check,
   from the start of the span back to `NBG_ARCHIVE_START`, one calendar
   year at a time, newest first: the first table of each month of the year
-  in English gives the year's codes, then one CSV export of those codes
-  covers the year (AZN left out for 2006 and 2007). That is about 400
-  requests in all, at most two years per hourly run after its check, so
-  the fill ends within about a day and adds at most about 26 requests to
-  an hour. A currency quoted for less than a month between two samples
-  would be missed; none is known. Until a year is filled, history ranges
-  reaching into it take the live path (rule 2). No day table is fetched
-  for the archive in advance (see "Anti-goals").
+  and the table in force on its last day (31 December, or the day before
+  the span's start), in English, give the year's codes, then one CSV
+  export of those codes covers the year (AZN left out for 2006 and 2007).
+  That is about 430 requests in all, at most two years per hourly run
+  after its check, so the fill ends within about a day and adds at most
+  about 28 requests to an hour. A currency quoted for less than a month
+  between two samples would be missed; none is known. Until a year is
+  filled, history ranges reaching into it take the live path (rule 2). No
+  day table is fetched for the archive in advance (see "Anti-goals").
 - Every run works to a deadline: before each NBG request and each
   database write it checks the invocation's remaining time, leaves room
   for its commit and its log line, and leaves unfinished work (a slice,
@@ -547,7 +548,7 @@ everything the endpoint uses.
 The alarm design ruled out "a scheduled probe of NBG from AWS" because it
 adds bot-like traffic from an AWS address. The sync job is such
 scheduled traffic, accepted deliberately: about 45 to 75 requests a day,
-steady, plus a one-off fill of the archive rows of about 400 requests,
+steady, plus a one-off fill of the archive rows of about 430 requests,
 replace traffic that grows with every user and instance. Its user agent
 stays `nbg-rates-mcp/<version> (+https://github.com/akalongman/nbg-rates-mcp)`,
 so NBG can see who it is.

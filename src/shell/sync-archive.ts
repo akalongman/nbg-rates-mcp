@@ -351,24 +351,29 @@ export async function runRecheckSlice(
     return ok(recorded.value.kind === 'deadline' ? 'deadline' : 'done');
 }
 
-/** The fill's samples for a range inside one year: each month's first day, or the range's start when that is later. */
-function monthSamples(range: DateRange): ReadonlyArray<CalendarDate> {
+/**
+ * The fill's samples for a range inside one year, oldest first: each month's first day, or the range's start when that
+ * is later, then the range's last day, unless that is already the last month's sample. The last day's table names a
+ * currency NBG first quotes after the last month's first day, which the next range's samples would see too late.
+ */
+function fillSamples(range: DateRange): ReadonlyArray<CalendarDate> {
     const year = yearOf(range.start);
     const first = monthOf(range.start);
-    return Array.from({ length: monthOf(range.end) - first + 1 }, (_, index) =>
+    const months = Array.from({ length: monthOf(range.end) - first + 1 }, (_, index) =>
         later(dayOfYear(year, `${String(first + index).padStart(2, '0')}-01`), range.start),
     );
+    return months.at(-1) === range.end ? months : [...months, range.end];
 }
 
 /**
- * The archive rows of a range inside one year. The English tables of its month samples give the codes (their union),
- * one CSV export over the range names them (AZN left out inside its filter gap), and one write stores an item per
+ * The archive rows of a range inside one year. The English tables of its samples give the codes (their union), one
+ * CSV export over the range names them (AZN left out inside its filter gap), and one write stores an item per
  * publication, observed before the CSV request; then the rows' start moves to the range's start. An empty export
  * fails as empty_export. A failure or the deadline anywhere before the state write leaves the rows' start as it was.
  */
 async function fillYear(context: SyncContext, range: DateRange): Promise<Result<'done' | 'deadline', SyncFailure>> {
     const codes = new Set<string>();
-    for (const sample of monthSamples(range)) {
+    for (const sample of fillSamples(range)) {
         const table = await context.fetchDay(sample, 'en');
         if (table.kind !== 'ok') {
             return stoppedBy(table);

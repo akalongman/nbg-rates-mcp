@@ -83,7 +83,7 @@ function renamed(table: NbgDay, code: string, name: string): NbgDay {
     return { ...table, currencies: table.currencies.map((row) => (row.code === code ? { ...row, name } : row)) };
 }
 
-/** The fill's samples for a year: the English tables of the first day of its months 1 to `lastMonth`. */
+/** The fill's month samples for a year: the English tables of the first day of its months 1 to `lastMonth`. */
 function monthTables(year: number, lastMonth: number): ReadonlyArray<string> {
     return Array.from({ length: lastMonth }, (_, index) => `day:en:${year}-${String(index + 1).padStart(2, '0')}-01`);
 }
@@ -596,7 +596,7 @@ describe("runArchiveFill: the archive rows' fill", () => {
         expect(harness.since(mark).operations).toEqual([]);
     });
 
-    it('fills 2026 before the span, then 2025 with the XYZ of its mid-year table, from month tables and one CSV each', async () => {
+    it('fills 2026 before the span, then 2025 with the XYZ of its mid-year table, from month tables, the last day and one CSV each', async () => {
         const harness = await beforeFill(BEFORE_SPAN);
         const mark = harness.mark();
         expect(await harness.run('2026-10-08T10:00')).toEqual(
@@ -604,7 +604,7 @@ describe("runArchiveFill: the archive rows' fill", () => {
                 time: '2026-10-08T06:00:02.000Z',
                 scheduledTime: '2026-10-08T06:00:00.000Z',
                 checked: true,
-                nbgRequests: 24,
+                nbgRequests: 26,
                 span: '2026-10-01..2026-10-09',
             }),
         );
@@ -612,11 +612,13 @@ describe("runArchiveFill: the archive rows' fill", () => {
         expect(harness.since(mark).requests).toEqual([
             CHECK_CSV,
             ...monthTables(2026, 9),
+            'day:en:2026-09-30',
             'range:EUR,USD:2026-01-01:2026-09-30',
             ...monthTables(2025, 12),
+            'day:en:2025-12-31',
             'range:EUR,USD,XYZ:2025-01-01:2025-12-31',
         ]);
-        expect(harness.since(mark).sleeps).toEqual(Array.from({ length: 23 }, () => 500));
+        expect(harness.since(mark).sleeps).toEqual(Array.from({ length: 25 }, () => 500));
         // The claim, the check's fresh-until and the slice; then each year's rows, one item per publication, before
         // the rows' start moves over it.
         expect(harness.since(mark).writes).toEqual([
@@ -645,7 +647,7 @@ describe("runArchiveFill: the archive rows' fill", () => {
         expect(await harness.run('2026-10-08T10:00')).toMatchObject({
             syncResult: 'ok',
             syncDetail: null,
-            nbgRequests: 27,
+            nbgRequests: 29,
         });
         expect(harness.since(mark).requests.filter((request) => request.startsWith('range:'))).toEqual([
             CHECK_CSV,
@@ -663,16 +665,81 @@ describe("runArchiveFill: the archive rows' fill", () => {
         expect((await harness.state()).rowsStart).toBe('2007-01-01');
     });
 
+    it("asks 2019's CSV for a code first quoted on 2019-12-10, which the table in force on 31 December names", async () => {
+        const year2018 = publication(syntheticTable('2018-01-01', { EUR: 3.0456, USD: 2.5432 }));
+        const year2019 = publication(syntheticTable('2019-01-01', { EUR: 3.0567, USD: 2.6543 }));
+        const quoted = publication(syntheticTable('2019-12-10', { EUR: 3.1678, QQQ: 0.4321, USD: 2.8654 }));
+        const year2020 = publication(syntheticTable('2020-01-01', { EUR: 3.2109, QQQ: 0.4432, USD: 2.8765 }));
+        const harness = await beforeFill([year2018, year2019, quoted, year2020], { rowsStart: date('2020-01-01') });
+        const mark = harness.mark();
+        const run = await harness.run('2026-10-08T10:00');
+        // No first day of a month in 2019 has QQQ in force; 2019-12-31 does.
+        expect(harness.since(mark).requests).toEqual([
+            CHECK_CSV,
+            ...monthTables(2019, 12),
+            'day:en:2019-12-31',
+            'range:EUR,QQQ,USD:2019-01-01:2019-12-31',
+            ...monthTables(2018, 12),
+            'day:en:2018-12-31',
+            'range:EUR,USD:2018-01-01:2018-12-31',
+        ]);
+        expect(await harness.store.readRowsBetween(date('2019-01-01'), date('2019-12-31'), SIGNAL)).toEqual({
+            ok: true,
+            value: archived([year2019, quoted], at('2026-10-08T10:00:02')),
+        });
+        expect(run).toMatchObject({ syncResult: 'ok', syncDetail: null, nbgRequests: 29 });
+        expect((await harness.state()).rowsStart).toBe('2018-01-01');
+    });
+
+    it("asks the first range's CSV for a code first quoted on 2026-09-02, which the table in force on 2026-09-30 names", async () => {
+        const quoted = publication(syntheticTable('2026-09-02', { EUR: 3.1345, QQQ: 0.4567, USD: 2.7123 }));
+        const harness = await beforeFill([...BEFORE_SPAN, quoted]);
+        const mark = harness.mark();
+        const run = await harness.run('2026-10-08T10:00');
+        // The table in force on 2026-09-01 is the one valid from 2026-03-02, without QQQ; on 2026-09-30 it has QQQ.
+        expect(harness.since(mark).requests).toEqual([
+            CHECK_CSV,
+            ...monthTables(2026, 9),
+            'day:en:2026-09-30',
+            'range:EUR,QQQ,USD:2026-01-01:2026-09-30',
+            ...monthTables(2025, 12),
+            'day:en:2025-12-31',
+            'range:EUR,USD,XYZ:2025-01-01:2025-12-31',
+        ]);
+        expect(await harness.store.readRowsBetween(date('2026-01-01'), date('2026-09-30'), SIGNAL)).toEqual({
+            ok: true,
+            value: archived([...BEFORE_SPAN.slice(4), quoted], at('2026-10-08T10:00:02')),
+        });
+        expect(run).toMatchObject({ syncResult: 'ok', syncDetail: null, nbgRequests: 26 });
+        expect((await harness.state()).rowsStart).toBe('2025-01-01');
+    });
+
+    it("asks a range's last day once when it is the first day of a month", async () => {
+        const harness = await beforeFill(BEFORE_SPAN, { span: { start: date('2026-10-02'), end: date('2026-10-09') } });
+        const claimed = await harness.state();
+        const mark = harness.mark();
+        expect(await runArchiveFill(contextAt(harness, '2026-10-08T10:00'), claimed)).toEqual({
+            ok: true,
+            value: 'progress',
+        });
+        // The first range ends on 2026-10-01, October's sample.
+        expect(harness.since(mark).requests.filter((request) => request.startsWith('day:'))).toEqual([
+            ...monthTables(2026, 10),
+            ...monthTables(2025, 12),
+            'day:en:2025-12-31',
+        ]);
+    });
+
     it("writes none of 2025's rows when the deadline comes after its month tables, and the next run fills it", async () => {
         const harness = await beforeFill(BEFORE_SPAN);
         const mark = harness.mark();
-        // The check's CSV, 2026's nine tables and CSV, and 2025's twelve tables leave too little time for its CSV.
+        // The check's CSV, 2026's ten tables and CSV, and 2025's thirteen tables leave too little time for its CSV.
         expect(
             await harness.run('2026-10-08T10:00', {
-                remainingMs: () => (harness.fake.requests.length - mark.requests >= 23 ? 15_000 : 25_000),
+                remainingMs: () => (harness.fake.requests.length - mark.requests >= 25 ? 15_000 : 25_000),
             }),
-        ).toMatchObject({ syncResult: 'ok', syncDetail: 'deadline', checked: true, nbgRequests: 23 });
-        expect(harness.since(mark).requests.slice(-2)).toEqual(['day:en:2025-11-01', 'day:en:2025-12-01']);
+        ).toMatchObject({ syncResult: 'ok', syncDetail: 'deadline', checked: true, nbgRequests: 25 });
+        expect(harness.since(mark).requests.slice(-2)).toEqual(['day:en:2025-12-01', 'day:en:2025-12-31']);
         expect(await harness.store.readRowsBetween(date('2025-01-01'), date('2025-12-31'), SIGNAL)).toEqual({
             ok: true,
             value: [],
@@ -683,13 +750,15 @@ describe("runArchiveFill: the archive rows' fill", () => {
         expect(await harness.run('2026-10-08T11:00')).toMatchObject({
             syncResult: 'ok',
             syncDetail: null,
-            nbgRequests: 27,
+            nbgRequests: 29,
         });
         expect(harness.since(next).requests).toEqual([
             CHECK_CSV,
             ...monthTables(2025, 12),
+            'day:en:2025-12-31',
             'range:EUR,USD,XYZ:2025-01-01:2025-12-31',
             ...monthTables(2024, 12),
+            'day:en:2024-12-31',
             'range:EUR,USD:2024-01-01:2024-12-31',
         ]);
         expect(await harness.store.readRowsBetween(date('2024-01-01'), date('2025-12-31'), SIGNAL)).toEqual({
@@ -702,12 +771,12 @@ describe("runArchiveFill: the archive rows' fill", () => {
     it("writes none of a year's rows when the time left after its CSV does not cover the write", async () => {
         const harness = await beforeFill(BEFORE_SPAN);
         const mark = harness.mark();
-        // 2026's CSV is the eleventh request; after it, 2,400 ms do not cover a store operation and the log line.
+        // 2026's CSV is the twelfth request; after it, 2,400 ms do not cover a store operation and the log line.
         expect(
             await harness.run('2026-10-08T10:00', {
-                remainingMs: () => (harness.fake.requests.length - mark.requests >= 11 ? 2_400 : 25_000),
+                remainingMs: () => (harness.fake.requests.length - mark.requests >= 12 ? 2_400 : 25_000),
             }),
-        ).toMatchObject({ syncResult: 'ok', syncDetail: 'deadline', nbgRequests: 11 });
+        ).toMatchObject({ syncResult: 'ok', syncDetail: 'deadline', nbgRequests: 12 });
         expect(harness.since(mark).requests.at(-1)).toBe('range:EUR,USD:2026-01-01:2026-09-30');
         expect(harness.since(mark).writes.map((write) => write.operation)).not.toContain('archive');
         expect((await harness.state()).rowsStart).toBeUndefined();
@@ -718,7 +787,7 @@ describe("runArchiveFill: the archive rows' fill", () => {
         const mark = harness.mark();
         expect(
             await harness.run('2026-10-08T10:00', { client: failingDays(harness, ['2025-05-01'], UNAVAILABLE) }),
-        ).toMatchObject({ syncResult: 'failed', syncDetail: 'upstream_unavailable', checked: true, nbgRequests: 16 });
+        ).toMatchObject({ syncResult: 'failed', syncDetail: 'upstream_unavailable', checked: true, nbgRequests: 17 });
         expect(harness.since(mark).requests.at(-1)).toBe('day:en:2025-05-01');
         expect(await harness.store.readRowsBetween(date('2025-01-01'), date('2026-09-30'), SIGNAL)).toEqual({
             ok: true,
@@ -735,7 +804,7 @@ describe("runArchiveFill: the archive rows' fill", () => {
             syncResult: 'failed',
             syncDetail: 'empty_export',
             checked: true,
-            nbgRequests: 11,
+            nbgRequests: 12,
         });
         expect(harness.since(mark).requests.at(-1)).toBe('range:EUR,USD:2026-01-01:2026-09-30');
         expect(harness.since(mark).writes.map((write) => write.operation)).not.toContain('archive');
@@ -759,6 +828,7 @@ describe("runArchiveFill: the archive rows' fill", () => {
             'day:en:1995-10-14',
             'day:en:1995-11-01',
             'day:en:1995-12-01',
+            'day:en:1995-12-31',
             'range:USD:1995-10-14:1995-12-31',
         ]);
         expect(await harness.store.readRowsBetween(date('1995-01-01'), date('1995-12-31'), SIGNAL)).toEqual({
