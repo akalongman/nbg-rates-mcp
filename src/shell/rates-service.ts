@@ -15,7 +15,9 @@ import {
 } from '../core/types.js';
 import type { SnapshotCache } from './cache.js';
 import type { NbgClient } from './nbg-client.js';
-import type { NbgFailure } from './nbg-failure.js';
+
+/** A rates error that means NBG failed: it did not answer usably, or answered in a shape the parser does not know. */
+export type NbgFailure = Extract<RatesError, { readonly kind: 'upstream_unavailable' | 'upstream_shape_changed' }>;
 
 export interface RatesService {
     getSnapshot(args: {
@@ -49,13 +51,15 @@ export function createRatesService(deps: { client: NbgClient; cache: SnapshotCac
         if (cached !== undefined) {
             return ok(cached);
         }
+        // The entry is stamped when the fetch started: a publication during the fetch may not be in NBG's answer.
+        const askedAt = deps.now();
         const day = await deps.client.fetchDay(date, language);
         if (!day.ok) {
             return day;
         }
         const snapshot = snapshotFromDay(day.value, date, today);
         if (snapshot.ok) {
-            deps.cache.set(language, date, snapshot.value, deps.now());
+            deps.cache.set(language, date, snapshot.value, askedAt);
             onFetched?.(day.value);
         }
         return snapshot;

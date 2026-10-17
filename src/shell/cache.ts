@@ -6,8 +6,9 @@ const LATE_PUBLICATION_DAYS = 7;
 
 export interface SnapshotCache {
     /**
-     * The live entry, or undefined. An entry set before ignoreCachedBefore is skipped but kept: that caller knows of a
-     * publication after the entry and asks NBG again, while a caller without the option still gets the entry.
+     * The live entry, or undefined. An entry whose set time is before ignoreCachedBefore is skipped but kept: that
+     * caller knows of a publication after the entry's fetch started and asks NBG again, while a caller without the
+     * option still gets the entry.
      */
     get(
         language: Language,
@@ -15,6 +16,10 @@ export interface SnapshotCache {
         now: Date,
         ignoreCachedBefore?: Date,
     ): RatesSnapshot | undefined;
+    /**
+     * now is the entry's set time and the start of its TTL. Pass the time the fetch that produced the snapshot started,
+     * not when it ended: NBG may have answered from a table that a publication during the fetch replaced.
+     */
     set(language: Language, requestedDate: CalendarDate, snapshot: RatesSnapshot, now: Date): void;
     readonly size: number;
 }

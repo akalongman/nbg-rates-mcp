@@ -164,6 +164,30 @@ describe('getSnapshot', () => {
         expect(calls).toEqual(['day:en:2026-10-07', 'day:en:2026-10-07']);
     });
 
+    it('stamps a fetched entry with the time its fetch started, so an observation during the fetch skips it', async () => {
+        // The fetch starts at NOW and ends 5 s later; the mirror observes a publication 1 s into it, so NBG may have
+        // answered from the table that publication replaced.
+        let clock = NOW;
+        const { client, calls } = fakeClient();
+        const slowClient: NbgClient = {
+            ...client,
+            async fetchDay(requested, language) {
+                const day = await client.fetchDay(requested, language);
+                clock = new Date(clock.getTime() + 5000);
+                return day;
+            },
+        };
+        const rates = createRatesService({ client: slowClient, cache: createSnapshotCache(), now: () => clock });
+        await rates.getSnapshot({ date: date('2026-10-07'), language: 'en' });
+        const result = await rates.getSnapshot({
+            date: date('2026-10-07'),
+            language: 'en',
+            ignoreCachedBefore: new Date(NOW.getTime() + 1000),
+        });
+        expect(result.ok).toBe(true);
+        expect(calls).toEqual(['day:en:2026-10-07', 'day:en:2026-10-07']);
+    });
+
     it('hands onFetched the table it fetched, but not a cached one or a table that does not answer', async () => {
         const { service: rates, calls } = service();
         const fetched: NbgDay[] = [];

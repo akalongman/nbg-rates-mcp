@@ -1,5 +1,7 @@
 import type { RatesError, Result } from '../core/types.js';
-import type { RatesService } from './rates-service.js';
+import type { NbgFailure, RatesService } from './rates-service.js';
+
+export type { NbgFailure };
 
 /**
  * Which rates errors mean NBG failed: it did not answer usably, or it answered in a shape the parser does not know.
@@ -8,10 +10,7 @@ import type { RatesService } from './rates-service.js';
  * ordinary use.
  */
 
-export type NbgFailureKind = Extract<RatesError['kind'], 'upstream_unavailable' | 'upstream_shape_changed'>;
-
-/** A rates error that is an NBG failure, with its detail. */
-export type NbgFailure = Extract<RatesError, { readonly kind: NbgFailureKind }>;
+export type NbgFailureKind = NbgFailure['kind'];
 
 /** The counted kind of an error, or undefined for one that is not an NBG failure. */
 export function nbgFailureKind(error: RatesError): NbgFailureKind | undefined {
