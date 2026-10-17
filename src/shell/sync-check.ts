@@ -24,6 +24,8 @@ import { err, ok, type CalendarDate, type CurrencyCode, type Result } from '../c
 import {
     applyToState,
     resolvePublication,
+    SYNC_REQUEST_SPACING_MS,
+    SYNC_REQUEST_WORST_MS,
     syncNbgFailure,
     type SyncContext,
     type SyncFailure,
@@ -390,13 +392,26 @@ async function checkTomorrow(
 }
 
 /**
- * A quiet run's count. It continues the stored window's count only when the table the run matched was observed
- * before that window's run was due, so that count can include the commit; a later observation is a commit the count
- * may predate (a run that committed a change and has not yet written its window), and the count starts again at 1.
- * Every error this makes is a later stop, never an earlier one.
+ * The longest a stored table's content can postdate its observation: the observation is taken before the English
+ * request, and one request (spaced on the hourly path) can still answer a write NBG makes before it returns.
+ */
+const CONTENT_AFTER_OBSERVATION_MS = SYNC_REQUEST_SPACING_MS + SYNC_REQUEST_WORST_MS;
+
+/**
+ * A quiet run's count. It continues the stored window's count only when the table the run matched was observed more
+ * than CONTENT_AFTER_OBSERVATION_MS before that window's run was due: the table's content then predates the due time,
+ * so that run, which asked NBG at or after its due time, already compared against content at least as new. Any other
+ * commit is one the count may predate (a run that committed a change and has not yet written its window, or whose
+ * English request answered a write landing after the next run asked), and the count starts again at 1. This rests on
+ * no event being processed before its due time; under that assumption every error the rule makes is a later stop,
+ * never an earlier one. An event delivered early, which the early check admits up to MAX_EVENT_AGE_MS ahead for clock
+ * skew, stays outside the bound.
  */
 function quietCount(previous: WindowState | undefined, storedObservedAt: number | undefined): number {
-    const counted = previous !== undefined && storedObservedAt !== undefined && storedObservedAt < previous.at;
+    const counted =
+        previous !== undefined &&
+        storedObservedAt !== undefined &&
+        storedObservedAt + CONTENT_AFTER_OBSERVATION_MS < previous.at;
     return counted ? previous.quietRuns + 1 : 1;
 }
 

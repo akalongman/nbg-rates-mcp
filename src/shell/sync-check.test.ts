@@ -641,8 +641,66 @@ describe('runWindowCheck: the publication window', () => {
         expect(afterChange.window).toMatchObject({ quietRuns: 1, stopped: false, at: at('2026-10-16T17:12') });
         expect(afterChange.freshUntil).toBe(at('2026-10-16T17:15'));
         release();
+        // Its 2026-10-17 commit alone: the 17:12 run already stored 2026-09-28, so the released retry finds it unchanged.
         expect(await slow).toMatchObject({ syncResult: 'ok', committed: 1 });
         expect((await harness.state()).window).toEqual(afterChange.window);
+
+        for (let minute = 13; minute <= 20; minute += 1) {
+            expect(await windowRun(harness, FRIDAY, minute)).toMatchObject({ syncResult: 'ok', nbgRequests: 1 });
+        }
+        expect((await harness.state()).window).toMatchObject({ quietRuns: 9, stopped: false });
+        expect(await windowRun(harness, FRIDAY, 21)).toMatchObject({ syncResult: 'ok', nbgRequests: 1 });
+        expect((await harness.state()).window).toMatchObject({ quietRuns: 10, stopped: true });
+    });
+
+    it('does not count on from a commit whose English request straddles the next due minute', async () => {
+        const harness = await friday();
+        harness.fake.publish(SATURDAY);
+        for (let minute = 1; minute <= 9; minute += 1) {
+            expect(await windowRun(harness, FRIDAY, minute)).toMatchObject({ syncResult: 'ok' });
+        }
+        expect((await harness.state()).window).toMatchObject({ quietRuns: 8, stopped: false });
+
+        // The 17:10 event arrives 59.5 s late, within MAX_EVENT_AGE_MS. Its English request for tomorrow is still in
+        // flight when the 17:11 run asks NBG, and NBG's second write lands while it is.
+        const changed = publication(withRates(SATURDAY.en, { USD: 2.7155 }));
+        const englishAtNbg = createFakeNbg([SATURDAY]);
+        const release = englishAtNbg.hold();
+        const client: NbgClient = {
+            fetchDay: (day, language) =>
+                (day === '2026-10-17' && language === 'en' ? englishAtNbg : harness.fake).client.fetchDay(
+                    day,
+                    language,
+                ),
+            fetchRange: (codes, start, end) => harness.fake.client.fetchRange(codes, start, end),
+        };
+        const lateObservedAt = at('2026-10-16T17:10') + 59_500;
+        const late = windowRun(harness, FRIDAY, 10, { client, now: new Date(lateObservedAt) });
+        await vi.waitFor(() => {
+            expect(englishAtNbg.requests).toEqual([TOMORROW_EN]);
+        });
+
+        // 17:11: NBG still answers the first write, which the mirror holds: quiet, count 9.
+        expect(await windowRun(harness, FRIDAY, 11)).toMatchObject({ syncResult: 'ok', checked: true });
+        expect((await harness.state()).window).toMatchObject({
+            quietRuns: 9,
+            stopped: false,
+            at: at('2026-10-16T17:11'),
+        });
+
+        // The in-flight request answers NBG's second write, and the 17:10 run commits it, observed before 17:11.
+        englishAtNbg.publish(changed);
+        harness.fake.publish(changed);
+        release();
+        expect(await late).toMatchObject({ syncResult: 'ok', committed: 1, nbgRequests: 3 });
+        expect(await held(harness.store, '2026-10-17')).toEqual(expectedHeld(changed, lateObservedAt));
+        expect(lateObservedAt).toBeLessThan(at('2026-10-16T17:11'));
+
+        // 17:12 is the first quiet run since the change.
+        expect(await windowRun(harness, FRIDAY, 12)).toMatchObject({ syncResult: 'ok', checked: true });
+        const afterChange = await harness.state();
+        expect(afterChange.window).toMatchObject({ quietRuns: 1, stopped: false, at: at('2026-10-16T17:12') });
+        expect(afterChange.freshUntil).toBe(at('2026-10-16T17:15'));
 
         for (let minute = 13; minute <= 20; minute += 1) {
             expect(await windowRun(harness, FRIDAY, minute)).toMatchObject({ syncResult: 'ok', nbgRequests: 1 });
