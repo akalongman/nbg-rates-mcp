@@ -19,7 +19,7 @@ import {
     type RunOptions,
 } from '../../test/helpers/sync-harness.js';
 import { date } from '../../test/helpers/values.js';
-import { markUnresolved } from '../core/mirror.js';
+import { markUnresolved, type MirrorState } from '../core/mirror.js';
 import { tableCodes, type MirrorPublication } from '../core/mirror-publication.js';
 import type { NbgDay } from '../core/nbg-schema.js';
 import { err, type CalendarDate } from '../core/types.js';
@@ -854,26 +854,109 @@ describe('runWindowCheck: unresolved dates and the deadline', () => {
         expect(state.freshUntil).toBe(at('2026-10-16T17:03'));
     });
 
-    it('fails the run on a failed retry, writing no window state and no fresh-until', async () => {
-        const harness = await withOldUnresolved();
-        const client: NbgClient = {
+    /** NBG through the harness's fake, failing every table request for 2026-09-28. */
+    function failingOldDate(harness: Harness): NbgClient {
+        return {
             fetchDay: (day, language) =>
                 day === '2026-09-28' ? Promise.resolve(err(UNAVAILABLE)) : harness.fake.client.fetchDay(day, language),
             fetchRange: (codes, start, end) => harness.fake.client.fetchRange(codes, start, end),
         };
-        const before = await harness.state();
+    }
+
+    /** Friday's window with SATURDAY committed at 17:01 and counted quiet at 17:02 and 17:03, then 2026-09-28 marked. */
+    async function countedTwiceThenOldUnresolved(): Promise<{
+        readonly harness: Harness;
+        readonly counted: MirrorState;
+    }> {
+        const harness = await friday();
+        harness.fake.publish(SATURDAY);
+        for (let minute = 1; minute <= 3; minute += 1) {
+            expect(await windowRun(harness, FRIDAY, minute)).toMatchObject({ syncResult: 'ok' });
+        }
+        const counted = await harness.state();
+        expect(counted.window).toEqual({
+            date: FRIDAY,
+            committed: true,
+            quietRuns: 2,
+            stopped: false,
+            at: at('2026-10-16T17:03'),
+        });
+        harness.fake.publish(publication(tableFrom('2026-09-28', 2.6912)));
+        const marked = await harness.store.updateState(
+            (state) => ({ next: markUnresolved(state, [date('2026-09-28')]), outcome: undefined }),
+            SIGNAL,
+        );
+        expect(marked.ok).toBe(true);
+        return { harness, counted };
+    }
+
+    it('fails the run on a failed retry, still recording the window and the fresh-until of its check', async () => {
+        const harness = await withOldUnresolved();
         const mark = harness.mark();
-        expect(await windowRun(harness, FRIDAY, 0, { client })).toMatchObject({
+        expect(await windowRun(harness, FRIDAY, 0, { client: failingOldDate(harness) })).toMatchObject({
             syncResult: 'failed',
             syncDetail: 'upstream_unavailable',
-            checked: false,
+            checked: true,
             nbgRequests: 2,
         });
-        expect(harness.since(mark).writes).toEqual([{ operation: 'state', key: 'state/state' }]);
+        // The claim, and the one write after the retry.
+        expect(harness.since(mark).writes).toEqual([
+            { operation: 'state', key: 'state/state' },
+            { operation: 'state', key: 'state/state' },
+        ]);
         const after = await harness.state();
-        expect(after.window).toBeUndefined();
-        expect(after.freshUntil).toBe(before.freshUntil);
+        expect(after.window).toEqual({
+            date: FRIDAY,
+            committed: false,
+            quietRuns: 0,
+            stopped: false,
+            at: at('2026-10-16T17:00'),
+        });
+        expect(after.freshUntil).toBe(at('2026-10-16T17:03'));
         expect(after.unresolved).toEqual(['2026-09-28']);
+    });
+
+    it('neither counts nor resets the quiet count on a run whose quiet sight a failed retry ends', async () => {
+        const { harness, counted } = await countedTwiceThenOldUnresolved();
+        const mark = harness.mark();
+        expect(await windowRun(harness, FRIDAY, 4, { client: failingOldDate(harness) })).toMatchObject({
+            syncResult: 'failed',
+            syncDetail: 'upstream_unavailable',
+            checked: true,
+            committed: 0,
+            nbgRequests: 2,
+        });
+        // Tomorrow's English table, quiet; the failing client answers 2026-09-28 without the fake.
+        expect(harness.since(mark).requests).toEqual([TOMORROW_EN]);
+        const failed = await harness.state();
+        expect(failed.window).toEqual(counted.window);
+        expect(failed.freshUntil).toBe(at('2026-10-16T17:07'));
+
+        // The next quiet run counts on from the count the failed run left: 3, not 4 and not 1.
+        expect(await windowRun(harness, FRIDAY, 5)).toMatchObject({ syncResult: 'ok', committed: 1 });
+        expect((await harness.state()).window).toMatchObject({ quietRuns: 3, at: at('2026-10-16T17:05') });
+    });
+
+    it('records a commit on a run a failed retry ends, starting the quiet count again at 0', async () => {
+        const { harness } = await countedTwiceThenOldUnresolved();
+        const changed = publication(withRates(SATURDAY.en, { USD: 2.7155 }));
+        harness.fake.publish(changed);
+        expect(await windowRun(harness, FRIDAY, 4, { client: failingOldDate(harness) })).toMatchObject({
+            syncResult: 'failed',
+            syncDetail: 'upstream_unavailable',
+            checked: true,
+            committed: 1,
+        });
+        expect(await held(harness.store, '2026-10-17')).toEqual(expectedHeld(changed, at('2026-10-16T17:04:02')));
+        const state = await harness.state();
+        expect(state.window).toEqual({
+            date: FRIDAY,
+            committed: true,
+            quietRuns: 0,
+            stopped: false,
+            at: at('2026-10-16T17:04'),
+        });
+        expect(state.freshUntil).toBe(at('2026-10-16T17:07'));
     });
 
     it("writes neither window state nor fresh-until when the deadline comes during tomorrow's step", async () => {

@@ -452,29 +452,36 @@ function nextWindow(current: MirrorState, seen: TomorrowSeen, today: CalendarDat
  * while the deadline allows. Then one state write records the window, stopped once tomorrow's publication is
  * committed and QUIET_RUNS_TO_STOP runs in a row saw no change, and, when the span covers tomorrow, the fresh-until
  * time due after the scheduled time, which makes the run `checked`. Both are computed from the state the write reads,
- * so a newer run's count is kept and an older run changes nothing. A failure, or the deadline during tomorrow's step,
- * writes neither.
+ * so a newer run's count is kept and an older run changes nothing. A failure in tomorrow's step, or the deadline
+ * during it, writes neither.
+ *
+ * A failed retry still makes that write, as the hourly check records its fresh-until before its retries, and is
+ * answered as `retryFailure`, which fails the run. A failed run does not count towards the quiet runs, so its quiet
+ * sight leaves the stored window's count and time as they are; any other sight is recorded as on a successful run
+ * (a commit, for one, starts the count again at 0, since the count is of runs that saw the committed publication
+ * unchanged), which can only make the stop later.
  */
 export async function runWindowCheck(
     context: SyncContext,
     state: MirrorState,
 ): Promise<Result<CheckOutcome, SyncFailure>> {
     const tomorrow = addDays(context.today, 1);
-    const checked = await checkTomorrow(context, state, tomorrow);
-    if (!checked.ok) {
-        return checked;
+    const sighted = await checkTomorrow(context, state, tomorrow);
+    if (!sighted.ok) {
+        return sighted;
     }
-    if (checked.value === 'deadline') {
+    if (sighted.value === 'deadline') {
         return ok({ checked: false, deadline: true });
     }
-    const seen = checked.value;
+    const seen = sighted.value;
     const retried = await retryOutside(context, state, { start: tomorrow, end: tomorrow });
-    if (!retried.ok) {
-        return retried;
-    }
+    const retryFailure = retried.ok ? undefined : { retryFailure: retried.error };
     const scheduledAt = context.scheduledAt.getTime();
     const recorded = await applyToState(context, (current) => {
-        const withWindow = recordWindow(current, nextWindow(current, seen, context.today, scheduledAt));
+        const withWindow =
+            retryFailure !== undefined && seen.quiet
+                ? current
+                : recordWindow(current, nextWindow(current, seen, context.today, scheduledAt));
         if (!inSpan(withWindow, tomorrow)) {
             return withWindow;
         }
@@ -485,7 +492,8 @@ export async function runWindowCheck(
         return recorded;
     }
     if (recorded.value.kind === 'deadline') {
-        return ok({ checked: false, deadline: true });
+        return ok({ checked: false, deadline: true, ...retryFailure });
     }
-    return ok({ checked: inSpan(recorded.value.state, tomorrow), deadline: retried.value === 'deadline' });
+    const checked = inSpan(recorded.value.state, tomorrow);
+    return ok({ checked, deadline: retried.ok && retried.value === 'deadline', ...retryFailure });
 }
