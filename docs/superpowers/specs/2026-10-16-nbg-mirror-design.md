@@ -1,7 +1,10 @@
 # Hosted NBG mirror: design
 
 Status: approved by the owner on 2026-10-17. Drafted 2026-10-16 and
-revised 2026-10-17 after an outside review.
+revised 2026-10-17 after an outside review. Amended and approved again on
+2026-10-17: the archive's day tables are no longer fetched in advance but
+written by the first request that needs them, the archive's CSV rows are
+fetched once, and the privacy sentence changes accordingly.
 
 Amends `2026-10-12-hosted-endpoint-design.md` (how the Lambda entry builds
 its rates service) and supersedes one non-goal of
@@ -36,9 +39,10 @@ The owner chose to mirror NBG in a database rather than share a cache.
 
 ## Worked example
 
-Friday 2026-10-16, Tbilisi time. The mirror has every NBG table from
-1995-10-14 to Friday's. The sync checks NBG once an hour, and on weekdays
-also every minute from 17:00.
+Friday 2026-10-16, Tbilisi time. The sync started on 2026-10-01: the
+mirror has every NBG table since then in both languages, and every CSV row
+from 1995-10-14 on. The sync checks NBG once an hour, and on weekdays also
+every minute from 17:00.
 
 - 16:00: the hourly run finds no table valid from Saturday 2026-10-17 yet
   and records the mirror as fresh until 17:02, two minutes after the next
@@ -58,27 +62,40 @@ also every minute from 17:00.
 - About 17:12: ten successful per-minute runs in a row have seen no
   change, so the per-minute runs stop for the day and the mirror is fresh
   until 18:05, five minutes after the next hourly check is due.
-- 17:30: Lasha asks for the USD history of September. Every day is in
-  the mirror, so NBG is not asked.
+- 17:30: Lasha asks for the USD history of 2019. Every row is in the
+  mirror, so NBG is not asked.
+- 17:40: Tamar asks for the EUR rate on Saturday 2024-03-16. The mirror
+  has that publication's CSV rows but not its day table, because nobody
+  has asked for it before. Her request asks NBG, as today, checks the
+  table's quantities and rates against the stored rows, answers her and
+  writes the table. At 17:45 Davit asks on another instance for Monday
+  2024-03-18, which has no table of its own: the stored rows show that
+  the table in force is the one valid from 2024-03-16, so he gets his
+  answer from the mirror and NBG is not asked. The mirror now shows that
+  someone asked about 2024-03-16, not who, when, which currency or what
+  amount.
 - Monday 2026-10-19 at 10:40 NBG blocks every request for half an hour.
   The mirror is fresh until 11:05 from the 10:00 run, so users asking for
-  today, last week or 2019 get their answers from it and notice nothing.
-  The 11:00 run fails and writes an error line; the mirror is untouched.
-  From 11:05 the mirror is past its fresh-until time, so a request tries
-  NBG once with a short timeout, and while that fails the server answers
-  from the mirror anyway, a few seconds slower. Ana asks at 11:07 for
-  tomorrow's rate: the mirror's only answer is "not published", which a
-  stale mirror cannot vouch for, so she gets today's "NBG is not
-  answering" error. Once NBG recovers at 11:10, requests get NBG's
-  answers live until the 12:00 run makes the mirror fresh again. The
-  owner gets an ALARM email from the sync alarm, another from the
-  NBG-failure alarm once a hosted lookup has failed live, and an OK email
-  from each once a five-minute period passes without a failure.
+  today, last week, any history or 2024-03-18 get their answers from it
+  and notice nothing; someone asking for a past date nobody has asked
+  about before gets "NBG is not answering", as today. The 11:00 run fails
+  and writes an error line; the mirror is untouched. From 11:05 the
+  mirror is past its fresh-until time, so a request tries NBG once with a
+  short timeout, and while that fails the server answers from the mirror
+  anyway, a few seconds slower. Ana asks at 11:07 for tomorrow's rate:
+  the mirror's only answer is "not published", which a stale mirror
+  cannot vouch for, so she gets today's "NBG is not answering" error.
+  Once NBG recovers at 11:10, requests get NBG's answers live until the
+  12:00 run makes the mirror fresh again. The owner gets an ALARM email
+  from the sync alarm, another from the NBG-failure alarm once a hosted
+  lookup has failed live, and an OK email from each once a five-minute
+  period passes without a failure.
 
 ## Goals
 
 - In steady state, NBG load does not depend on how many people use the
-  hosted endpoint or how many instances serve them.
+  hosted endpoint or how many instances serve them, beyond one request
+  the first time anyone asks for a past date's table.
 - An NBG outage or block does not reach users for any date the mirror
   holds a rate for.
 - Every answer from the mirror is the answer the live path would give,
@@ -104,17 +121,20 @@ also every minute from 17:00.
 - A wrong answer from a half-written or out-of-order mirror: a reader
   seeing part of a publication, or an older sync run undoing a newer
   one.
-- Recording what users ask. User requests never write to the mirror,
-  so its contents never reveal which dates or currencies anyone looked
-  up. The privacy promise "never records the amounts, dates or currencies
-  you ask about" stays true without new wording. The owner asked on
-  2026-10-17 whether requests should write their answers back, as a cache
-  would, and kept them read-only: the mirror is filled before anyone
-  asks, so a request finds nothing to write while the sync works, and
-  what it could write otherwise is either unchecked by the sync or a
-  record of the date someone asked about.
+- Recording who asks, when, or for what. The mirror never stores an
+  amount, a choice of currency, a caller or the time someone asked. A
+  request writes one thing: a past date's day table, the first time
+  anyone needs it (rule 7), so the mirror shows which past dates were
+  asked about at least once. The owner decided this on 2026-10-17 in two
+  steps: first, requests stayed read-only, because a mirror filled in
+  advance leaves a request nothing to write; then, once filling the
+  archive's day tables in advance proved to cost about 25,000 NBG
+  requests in a week (about 55 times the steady traffic, the kind of crawl
+  a bot defense blocks), the owner chose to fill them on request and to
+  change the privacy sentence (see "Changes to existing documents").
 - The mirror's own failure failing a request. A database error or a slow
-  database falls through to today's live path in time.
+  database falls through to today's live path in time, and a failed write
+  changes nothing in the answer.
 - NBG traffic that grows with users in steady state.
 
 ## Decided
@@ -122,27 +142,42 @@ also every minute from 17:00.
 ### What the mirror holds
 
 NBG's own published data, as each existing reader needs it, kept per
-publication, that is per date a table is valid from:
+publication, that is per date a table is valid from, in three parts:
 
-- The day table in both languages (`en`, `ka`), the shape `fetchDay`
-  returns today (`NbgDay` in `src/core/nbg-schema.ts`). Snapshots are
-  built from them with the same `normalizeSnapshot` and `requirePublished`
-  the live path uses.
-- Every row NBG's CSV export lists with that `ValidFromDate`, the shape
-  `fetchRange` returns today (`NbgCsvRow` in `src/core/nbg-csv.ts`), one
-  or more per currency (the export can list a currency twice for one
-  date, and `assembleHistory` applies the later publication).
-- When the sync fetched that data from NBG (its observation time).
+- The recent publications: every publication from the first one the sync
+  found when it started (the start of the complete span) to tomorrow. For
+  each, the day table in both languages (`en`, `ka`), the shape `fetchDay`
+  returns today (`NbgDay` in `src/core/nbg-schema.ts`); every row NBG's
+  CSV export lists with that `ValidFromDate`, the shape `fetchRange`
+  returns today (`NbgCsvRow` in `src/core/nbg-csv.ts`), one or more per
+  currency (the export can list a currency twice for one date, and
+  `assembleHistory` applies the later publication); and when the sync
+  fetched that data from NBG (its observation time).
+- The archive rows: every CSV row of every publication from
+  `NBG_ARCHIVE_START` (1995-10-14) to the start of the span, fetched once
+  by the sync (see "The sync job") and kept equal to NBG by the weekly
+  re-check.
+- Past tables: the day table of a publication before the span, in one
+  language, written by the first request that needs it (rule 7). The item
+  holds the table and nothing else.
+
+Snapshots are built from the day tables with the same `normalizeSnapshot`
+and `requirePublished` the live path uses. Before the span, the rows also
+say which publication is in force on a date: the latest one on or before
+it.
 
 Beside the publications, one record holds:
 
 - The complete span: the first and last date for which every publication
-  is committed, contiguous, with no gap.
+  is committed with both tables and its rows, contiguous, with no gap. Its
+  start does not move once set; its end runs to tomorrow as of the last
+  check.
+- The start of the archive rows: the first date from which every
+  publication's rows are stored, through to the span, contiguous.
 - The fresh-until time (see "Freshness").
 - The publication window's state for the current Tbilisi date, the dates
-  still unresolved (see "Committing a publication"), and when the daily
-  refetch, each slice of the weekly re-check and the backfill last
-  completed.
+  still unresolved (see "Committing a publication"), and the progress of
+  the daily refetch, of the weekly re-check and of the archive rows' fill.
 
 Storing each endpoint's own shape, rather than deriving history rows from
 day tables, keeps each reader's input exactly what the live path reads
@@ -163,38 +198,40 @@ every other case the answers, error kinds included, are equal.
 ### Committing a publication
 
 These rules exist because the mirror is written in pieces by runs that
-can overlap, fail half way or arrive late, while requests read it.
+can overlap, fail half way or arrive late, while requests read it. They
+govern the sync's writes; a request's past-table write is rule 7.
 
 - A publication is committed as one unit: a reader sees all of it (both
-  languages and its CSV rows) or none of it. One item per publication is
-  the simplest way (a table in both languages with its rows is a few tens
-  of kilobytes, far under DynamoDB's 400 KB item limit); a transaction of
-  several items also meets the rule. The layout is the builder's call
-  within it.
-- A publication is committed only when its three sources agree: the same
-  valid-from date, the same currency codes, and the same quantity and
-  rate per code in the English table, the Georgian table and the CSV
-  rows. A future date asked of the JSON endpoint returns the latest
-  published table, so a table whose valid-from date is not the one asked
-  for is "not there yet", never a table to store. When the sources
+  languages and its CSV rows) or none of it. A transaction over its items
+  meets the rule; the layout is the builder's call within it.
+- A publication in the span is committed only when its three sources
+  agree: the same valid-from date, the same currency codes, and the same
+  quantity and rate per code in the English table, the Georgian table and
+  the CSV rows. A future date asked of the JSON endpoint returns the
+  latest published table, so a table whose valid-from date is not the one
+  asked for is "not there yet", never a table to store. When the sources
   disagree (the CSV can show a new row before the JSON does, or the
   reverse), the date is recorded as unresolved and every following run
   fetches it again until the sources agree, whatever the CSV comparison
   says. Until then the mirror keeps the last committed version of that
   publication, or none.
+- Archive rows come from the CSV export alone. The live history path
+  reads nothing else, so they need no agreement with the day tables, and
+  a past table is checked against them instead (rule 7).
 - A write never replaces newer data with older: every publication write
   is conditional on its observation time being later than the stored
-  one, and the span, the fresh-until time and the window state only move
-  forward under the same kind of condition. An older run finishing after
-  a newer one therefore changes nothing.
+  one, and the span, the archive rows' start, the fresh-until time and
+  the window state only move forward under the same kind of condition. An
+  older run finishing after a newer one therefore changes nothing.
 - The complete span grows only by contiguous verified dates. After an
   interruption longer than the late-publication window (the sync down for
   ten days, say), a run catches up from the old end of the span, one
   verified publication after another, before the span may reach
-  tomorrow. The backfill moves the start of the span backwards the same
-  way. A new publication is committed before the span is extended over
-  it, and readers ignore any publication outside the span they read.
-- Readers read the span record and the publications with strongly
+  tomorrow. The archive rows' start moves backwards the same way, one
+  complete year of rows after another. A new publication is committed
+  before the span is extended over it, and readers ignore any data
+  outside the span and the archive rows they read.
+- Readers read the record first and the data second, with strongly
   consistent reads, follow every query page and retry every unprocessed
   key before treating anything as absent, so a just-committed publication
   is never missed and an absent row is a real absence.
@@ -204,21 +241,25 @@ can overlap, fail half way or arrive late, while requests read it.
   defect can produce one); it fails the run, which the next run retries.
 - The CSV request for a publication names every code in its JSON tables,
   so a currency newly added to a table has its rows fetched before the
-  publication is committed. Every request over the archive (the backfill
-  and the weekly re-check) takes its codes from the tables it covers, not
-  from today's (BGN's last table is valid from 2025-12-31), and leaves AZN
-  out of any request reaching into 2006 or 2007.
+  publication is committed. Every request over the archive (its one-off
+  fill and the weekly re-check) takes its codes from the tables of the
+  period it covers, not from today's (BGN's last table is valid from
+  2025-12-31), and leaves AZN out of any request reaching into 2006 or
+  2007.
 
 ### Answering a request on the hosted endpoint
 
-1. The mirror answers when it is fresh and covers the request. Covered
-   means: for a snapshot, the date lies inside the complete span, which
-   starts at a publication, so the table in force on that date is inside
-   it too; for a history range, the interval the live path would ask NBG
-   for lies inside the span. That interval is the range's start minus 31
+1. The mirror answers when it is fresh and covers the request. A snapshot
+   is covered when its date lies inside the complete span, which starts
+   at a publication, so the table in force on that date is inside it too;
+   or when its date lies between the start of the archive rows and the
+   span and the past table of the publication in force on it is stored in
+   the language asked. A history range is covered when the interval the
+   live path would ask NBG for lies between the start of the archive rows
+   and the end of the span. That interval is the range's start minus 31
    days (`HISTORY_LOOKBACK_DAYS`) through its end, for the requested
    currency and USD; an interval reaching before 1995-10-14 is covered
-   when the span starts there, because NBG has nothing earlier. The
+   when the archive rows start there, because NBG has nothing earlier. The
    mirror then hands `assembleHistory` exactly the rows NBG's export would
    return for those currencies and that interval (the export filters on
    `ValidFromDate`, inclusive), so BGN asked for 2026 is `unknown_currency`
@@ -228,17 +269,18 @@ can overlap, fail half way or arrive late, while requests read it.
    (`rate_not_published`).
 2. Otherwise the request takes today's live path: the NBG client and the
    instance's in-memory cache. This covers a mirror past its fresh-until
-   time, a date outside the complete span (an archive not yet filled back
-   that far), and any database error or timeout. The database read has a
-   bound of its own (about 2 seconds, the builder picks the value), so a
-   slow database still leaves the live path its full time inside the
+   time, a past date whose table nobody has asked for yet, a date before
+   the archive rows, and any database error or timeout. The database read
+   has a bound of its own (about 2 seconds, the builder picks the value),
+   so a slow database still leaves the live path its full time inside the
    function's 29 seconds. After an NBG outage the mirror stays stale until
    the next check succeeds, up to an hour, and in that hour requests ask
    NBG live, each instance's cache absorbing repeats. That is the accepted
    cost of hourly checks. An in-memory cache entry is never served when
-   the mirror observed the same date later than the entry was cached, so
-   an instance never steps back to a value the mirror had already
-   replaced.
+   the mirror observed the same publication later than the entry was
+   cached, so an instance never steps back to a value the mirror had
+   already replaced. Past tables carry no observation time, so the rule
+   does not apply to them: both are NBG's answers for a settled date.
 3. When a stale mirror holds a rate or a history series for the request,
    the live attempt is cut short: one attempt with a timeout of a few
    seconds (the builder picks the value), not today's two attempts of up
@@ -263,7 +305,22 @@ can overlap, fail half way or arrive late, while requests read it.
    meaning "NBG failed a hosted lookup". `reportingNbgFailures` in
    `src/shell/nbg-failure.ts` sees only a call's final result, so the seam
    that adds the mirror has to carry the failure to it.
-6. User requests only read the mirror. Only the sync job writes it.
+6. A request writes only rule 7's past tables. Everything else in the
+   mirror is written by the sync job.
+7. A request that took the live path for a past snapshot (a date between
+   the start of the archive rows and the span, whose past table in the
+   language asked is not stored) and received NBG's table writes that
+   table when its valid-from date is the publication the rows say is in
+   force and its codes, quantities and rates agree with that
+   publication's stored rows (AZN excused in its gap). The write only
+   adds: it never replaces a stored table. The item holds the table and
+   nothing else: no time, no client, no currency, no request detail. The
+   write has a bound of its own (about a second, the builder picks the
+   value), its failure is ignored and changes nothing in the answer, and
+   after one failed or timed-out write the request writes nothing more. A
+   request answered from the instance's cache, or that met a database
+   error or an NBG failure, writes nothing, and a history request never
+   writes.
 
 A history range that ends tomorrow is answered from the mirror like any
 other range; tomorrow's day is not published until the mirror holds its
@@ -285,10 +342,10 @@ the per-minute publication window below instead.
   is 18:05.
 - Nothing else moves it. The clock leaving the window never makes a
   stale mirror fresh again: if every per-minute run from 17:02 to 17:30
-  fails, the mirror stays stale from 17:04 until a check succeeds. A
-  successful backfill run, daily refetch or weekly re-check slice does
-  not move it either, and a skipped, duplicate or late event writes
-  nothing.
+  fails, the mirror stays stale from 17:04 until a check succeeds. The
+  archive rows' fill, the daily refetch, a weekly re-check slice and a
+  request's past-table write do not move it either, and a skipped,
+  duplicate or late event writes nothing.
 - The schedule's times (the hourly cadence, the window, its weekdays and
   its 17:30 end) live in one place in `src/core`, used by both the
   fresh-until computation and the stop rule. The Terraform schedules fire
@@ -307,10 +364,12 @@ the per-minute publication window below instead.
 For comparison, today's in-memory cache re-asks NBG after 10 minutes for
 a provisional entry and 12 hours for a final one (`cache.ts`), for each
 instance separately. The owner accepted the hour for changes outside the
-window. The last row is the accepted cost of not asking NBG about 22,000
+window. The last row is the accepted cost of not asking NBG about its
 day tables again: nothing proves NBG never corrects an old name, and
 today's 12 hour re-ask of a final entry (`finalTtlMs`) exists for that
-reason.
+reason. When the weekly re-check finds a past publication's rows changed,
+it rewrites them and deletes that publication's past tables, which the
+next request asking for it writes again.
 
 The two-minute bound for the 17:00 publication comes from EventBridge
 Scheduler: with its flexible time window off it fires within the
@@ -328,7 +387,9 @@ that bound on 2026-10-17.
   hour. Each hourly check asks NBG for one CSV export (every code of the
   latest committed table, over the window and tomorrow) and compares the
   complete row sets with the mirror's; a difference makes it fetch the
-  affected publications in both languages and commit them (above).
+  affected publications in both languages and commit them (above). The
+  first successful check starts the span at the first publication of its
+  window.
 - The publication window: on weekdays from 17:00 Tbilisi time (schedules
   in `Asia/Tbilisi`; Georgia keeps UTC+4 all year) the sync also runs
   every minute. Each per-minute run asks for tomorrow's JSON table in
@@ -368,23 +429,29 @@ that bound on 2026-10-17.
 - Once a day an hourly run also refetches the window's publications in
   both languages whatever the CSV says (about 16 requests). That catches
   a change only the JSON carries (a name, the signed diff) within a day.
-- Older tables (the builder's question 3, settled as this design's call):
-  once a week the whole archive's rates are re-checked through the CSV
+- Older data (the builder's question 3, settled as this design's call):
+  once a week every row in the mirror is re-checked through the CSV
   export, in slices spread over the week's hourly runs (a few dozen
-  requests in all), and a differing row set refetches its publications.
-- Fills the archive back to `NBG_ARCHIVE_START` (1995-10-14) until the
-  complete span reaches it. About 22,000 day tables (both languages) and
-  the CSV rows of every code do not fit in hourly runs, so the backfill
-  has its own schedule, every few minutes, and asks NBG nothing once the
-  archive is complete. Its pace is the builder's call within two limits:
-  it finishes in about a week (about 3,200 requests a day, two or three a
-  minute), and NBG never sees a burst. Until then, older dates take the
-  live path (rule 2).
+  requests in all). A differing row set in the span refetches its
+  publications; one in the archive rewrites those rows and deletes the
+  publication's past tables.
+- The archive rows are fetched once, after the first successful check,
+  from the start of the span back to `NBG_ARCHIVE_START`, one calendar
+  year at a time, newest first: the first table of each month of the year
+  in English gives the year's codes, then one CSV export of those codes
+  covers the year (AZN left out for 2006 and 2007). That is about 400
+  requests in all, at most two years per hourly run after its check, so
+  the fill ends within about a day and adds at most about 26 requests to
+  an hour. A currency quoted for less than a month between two samples
+  would be missed; none is known. Until a year is filled, history ranges
+  reaching into it take the live path (rule 2). No day table is fetched
+  for the archive in advance (see "Anti-goals").
 - Every run works to a deadline: before each NBG request and each
   database write it checks the invocation's remaining time, leaves room
   for its commit and its log line, and leaves unfinished work (a slice,
-  backfill dates, an unresolved publication) for the next run. A run
-  never commits half of a publication because it ran out of time.
+  an archive year, an unresolved publication) for the next run. A run
+  never commits half of a publication or moves the archive rows' start
+  over half a year because it ran out of time.
 - Delivery: EventBridge Scheduler's retry policy is set to no retries
   with the shortest event age, and so is the function's asynchronous
   invocation configuration, because Lambda would otherwise retry a failed
@@ -400,7 +467,8 @@ that bound on 2026-10-17.
   weekday holiday (31 window runs that find nothing), and about 45 on a
   weekend day. Each changed publication adds three (two JSON tables and
   the CSV rows), and the client retries a failed request once, as today.
-  The backfill's week comes on top.
+  The archive rows' one-off fill comes on top. A past-table write adds no
+  request: it stores what the request's own live lookup fetched.
 - Writes one log line per run: the kind of run, its outcome, the NBG
   failure kind if any, publications committed, the complete span. No user
   data exists in the sync to log. The line uses its own field names, not
@@ -410,13 +478,12 @@ that bound on 2026-10-17.
 ### Where the code runs
 
 - The sync is a second way into the same Lambda function, `nbg-rates-mcp`,
-  invoked through the alias `live` by EventBridge Scheduler schedules
-  (hourly, the publication window, the backfill), each with its own
-  execution role allowed to invoke the alias. The handler in
-  `dist/lambda.js` tells a scheduled sync event from an API Gateway
-  event. A release moves the endpoint and the sync together, and
-  `publish-release.sh lambda` needs no change. A sync run takes one of
-  the reserved instances for its duration.
+  invoked through the alias `live` by two EventBridge Scheduler schedules
+  (hourly and the publication window) with an execution role allowed to
+  invoke the alias. The handler in `dist/lambda.js` tells a scheduled
+  sync event from an API Gateway event. A release moves the endpoint and
+  the sync together, and `publish-release.sh lambda` needs no change. A
+  sync run takes one of the reserved instances for its duration.
 - The mirror is used only when the Lambda environment names a table
   (a new variable, for example `NBG_RATES_MIRROR_TABLE`). Unset, the
   function behaves exactly as today, which also keeps README line 117's
@@ -430,12 +497,15 @@ reasons:
 - No server, no connection pool and no VPC. A Lambda in a VPC would need a
   NAT gateway (about 32 USD a month) to reach NBG; RDS Postgres alone
   would exceed the endpoint's 5 USD monthly budget.
-- Size: about 11,000 publications of a few tens of kilobytes each, well
-  under a gigabyte, cents a month. Reads are strongly consistent, which
-  costs twice an eventually consistent read and is still cents. The
-  backfill's writes cost under a dollar once.
+- Size: the archive rows (about 11,000 publications of a few kilobytes
+  each), the span's tables and the past tables asked for, well under a
+  gigabyte, cents a month. Reads are strongly consistent, which costs
+  twice an eventually consistent read and is still cents.
 - One table, in `personal/iac`, defined in Terraform like the rest of the
-  endpoint. No point-in-time recovery: the mirror can be rebuilt from NBG.
+  endpoint. No point-in-time recovery: the mirror can be rebuilt from NBG
+  (the rows in about a day, the past tables as they are asked for again),
+  and recovery points would keep for 35 days when each past table was
+  written, which the privacy sentence says the copy does not record.
 
 ### Dependencies
 
@@ -477,32 +547,35 @@ everything the endpoint uses.
 The alarm design ruled out "a scheduled probe of NBG from AWS" because it
 adds bot-like traffic from an AWS address. The sync job is such
 scheduled traffic, accepted deliberately: about 45 to 75 requests a day,
-steady, plus the one-off backfill, replace traffic that grows with every
-user and instance. Its user agent stays
-`nbg-rates-mcp/<version> (+https://github.com/akalongman/nbg-rates-mcp)`,
+steady, plus a one-off fill of the archive rows of about 400 requests,
+replace traffic that grows with every user and instance. Its user agent
+stays `nbg-rates-mcp/<version> (+https://github.com/akalongman/nbg-rates-mcp)`,
 so NBG can see who it is.
 
 ### Release
 
 0.7.0: new behavior on the hosted endpoint, none for local installs.
 The code can ship before the table exists: with the variable unset
-nothing changes. The order:
+nothing changes. The privacy sentence changes in the same release. The
+order:
 
 1. Release 0.7.0 as usual. The alias `live` moves to it.
 2. In `personal/iac`, apply the table, the permissions, the alarms and
-   the three schedules, the schedules created disabled.
+   the two schedules, the schedules created disabled.
 3. Set the variable in the same Terraform. That publishes a new version
    of the `$LATEST` code with the variable, which `live` does not follow
    (`ignore_changes` on the alias). Promote it by the procedure in
    `personal/iac/docs/aws.md`: compare its `CodeSha256` with the one
    behind `live`, and move the alias only when they match.
-4. Enable the schedules, and watch the first runs and the backfill.
+4. Enable the schedules, and watch the first runs and the archive rows'
+   fill.
 
 Every later release publishes from `$LATEST`, so it keeps the variable.
 Before the alias is ever moved back to a version older than 0.7.0, the
 schedules are disabled: an older handler reads every event as an API
 Gateway event (`event.headers` in `src/lambda.ts`) and fails on a
-scheduled one.
+scheduled one. Such an older version also carries the old privacy
+sentence; the mirror's past tables stay but are no longer added to.
 
 ## Must be proven, not assumed
 
@@ -512,25 +585,36 @@ scheduled one.
   holiday, the 2026-09-28 late publication, a pre-September-2021 daily
   row, the archive start, an unknown code, history across the 2021
   changeover, BGN history before and after its last table on 2025-12-31,
-  a history range whose lookback reaches the start of the span), every
-  tool and the `nbg://rates/{date}` resource answer the same through the
-  mirror as through the live path.
+  a history range whose lookback reaches before the archive rows' start,
+  a past date answered the first time live and then from the table it
+  wrote, a carried-over past date answered from another date's stored
+  table), every tool and the `nbg://rates/{date}` resource answer the same
+  through the mirror as through the live path.
 - Where NBG's CSV export defect (AZN, 2006 and 2007) makes the live path
   return nothing, the test records the mirror's answer and the live one
   side by side, as the one accepted difference.
 - Fallbacks, each with a test: a stale mirror takes the live path; a
-  date outside the complete span takes the live path; a database error
+  date the mirror does not cover takes the live path; a database error
   and a database read that outlives its bound take the live path; an NBG
   failure on the live path returns the mirror's rate or series when it
   has one, and the log line still carries `nbgError`; a stale "not
   published" with an NBG failure returns the failure.
 - An in-memory cache entry older than the mirror's observation of the
-  same date is not served when the mirror is stale.
-- User requests never write to the mirror.
+  same publication is not served when the mirror is stale.
+- Requests write only past tables, by rule 7: a request for a date in the
+  span, a history request, a request answered from the instance's cache
+  and one that met a database error or an NBG failure write nothing; a
+  table whose valid-from date is not the rows' publication, or whose
+  codes, quantities or rates disagree with its rows, is not written; a
+  stored table is never replaced; the written item holds the table alone;
+  a failed or hanging write leaves the answer as NBG gave it, within the
+  write's bound, and the request writes nothing after it.
 - With a stale mirror holding the answers and an NBG that never answers
   (a fetch that hangs), one request makes one short attempt: an
   `nbg_convert_many` of 100 items over 30 distinct dates finishes well
-  inside the function's 29 second timeout, from the mirror.
+  inside the function's 29 second timeout, from the mirror. An
+  `nbg_convert_many` over 30 past dates whose writes hang finishes inside
+  the timeout with NBG's answers and waits on one write at most.
 - With a fresh mirror covering the dates asked, a burst of concurrent
   requests causes no NBG request at all, requests for tomorrow included,
   both before and after NBG publishes.
@@ -543,10 +627,15 @@ scheduled one.
   from the mirror; an empty export fails the run instead of removing rows;
   after a ten-day interruption the span does not cross a date no run
   verified.
+- The archive rows' fill: a code that appears only in a mid-year table is
+  in that year's rows; the 2006 and 2007 exports leave AZN out; the
+  archive rows' start moves only over a whole year; a re-check that finds
+  a past publication's rows changed rewrites them and deletes its past
+  tables.
 - Freshness: a mirror last checked by the 16:00 run answers at 16:59 but
   not at 17:03 when no per-minute run has succeeded, and is still stale
-  at 17:31 if none did; a successful backfill run does not make a stale
-  mirror fresh.
+  at 17:31 if none did; the archive rows' fill and a past-table write do
+  not make a stale mirror fresh.
 - The per-minute runs stop after ten successful quiet runs and not after
   ten failed ones, never run on Saturdays and Sundays, and end with the
   17:30 run on a day no table comes.
@@ -572,14 +661,27 @@ scheduled one.
   and back to OK) and the owner confirms they arrived. That proves
   delivery only; the function-errors alarm is also shown firing on a
   deliberately failing test invocation.
+- Every copy of the privacy sentence says what the mirror keeps.
 
 ## Changes to existing documents
 
 - `2026-10-12-hosted-endpoint-design.md`: on Lambda the rates service
-  reads the mirror first when the table variable is set; the new
-  variable; the scheduled sync events.
+  reads the mirror first when the table variable is set, and a request
+  may write a past table; the new variable; the scheduled sync events.
 - `2026-10-15-nbg-failure-alarm-design.md`: the non-goal on scheduled
   NBG traffic points here.
+- The privacy sentence, in `src/shell/site/copy-en.ts`,
+  `src/shell/site/copy-ka.ts`, `README.md` and the two places in
+  `docs/directory-listings.md`. In English: "The connector needs no
+  account and never records the amounts or currencies you ask about. For
+  a past date it keeps a copy of NBG's table the first time anyone asks;
+  the copy does not say who asked or when." In Georgian, as the owner
+  confirmed on 2026-10-17: "კონექტორს რეგისტრაცია არ სჭირდება და არასოდეს
+  ინახავს თანხებს ან ვალუტებს, რომლებზეც კითხულობთ. წარსული თარიღისთვის ის
+  ინახავს ეროვნული ბანკის ცხრილის ასლს, როცა ვინმე მას პირველად მოითხოვს;
+  ასლიდან არ ჩანს, ვინ ან როდის მოითხოვა." The sentence on the two logs
+  stays as it is,
+  and the request log line gains no field.
 - `README.md`: the Lambda paragraph (line 117) names the optional mirror
   variable.
 - `CHANGELOG.md`: 0.7.0.
@@ -589,24 +691,22 @@ scheduled one.
 ## Left to the builder
 
 - The item layout and key design of the table, within "What the mirror
-  holds" and "Committing a publication".
-- How a check compares rows within the stated requests, and the
-  backfill's pace within its limits.
+  holds", "Committing a publication" and rule 7.
+- How a check compares rows within the stated requests, and how the
+  archive rows' fill spreads its years within its limits.
 - The interfaces in `src/shell` that let `createRatesService` read the
   mirror. `SnapshotCache` is synchronous and a database read is not, so
   the mirror needs an asynchronous seam of its own; extend the existing
   service and client surface rather than duplicating it. The seam also
-  carries a live failure past a mirror answer (rule 5) and the one-attempt
-  rule across a request (rule 4).
-- The values of the database read bound, the short attempt's timeout and
-  the margins, within the stated limits.
+  carries a live failure past a mirror answer (rule 5), the one-attempt
+  rule across a request (rule 4) and the table a live lookup fetched to
+  the write of rule 7.
+- The values of the database read bound, the short attempt's timeout, the
+  write bound and the margins, within the stated limits.
 - Names of the variable, the metrics, the alarms and the schedules,
   following the existing `${local.nbg_rates_mcp_name}-...` pattern.
 - Whether the request log line gains a field saying the mirror answered.
-  If it does, the privacy sentence "which tool was called from which
-  client and whether NBG answered" and its copies (`copy-en.ts`,
-  `copy-ka.ts`, `README.md`, `docs/directory-listings.md`) must still
-  describe what the log holds.
+  It must never say that a request wrote a past table or which.
 
 ## Coordination
 
