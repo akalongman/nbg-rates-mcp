@@ -114,7 +114,7 @@ The rest of this document is for developers and for people writing instructions 
 
 ### Self-hosting
 
-The same server speaks Streamable HTTP: `nbg-rates-mcp --http --port 3000` serves `http://127.0.0.1:3000/mcp` (add `--host 0.0.0.0` to listen on every interface). On AWS Lambda the handler is `dist/lambda.handler` of the npm package with its production dependencies zipped beside it, behind an API Gateway HTTP API with payload format 2.0 and the `$default` stage (a named stage prefixes every path with its name, so each request would get a 404). Set `NBG_RATES_HTTP_HOSTS` to the public host name in either case, so the endpoint answers only for it. Optionally, `NBG_RATES_MIRROR_TABLE` names a DynamoDB table that the same function fills from NBG on a schedule and then answers from; unset, every lookup goes to NBG.
+The same server speaks Streamable HTTP: `nbg-rates-mcp --http --port 3000` serves `http://127.0.0.1:3000/mcp` (add `--host 0.0.0.0` to listen on every interface). On AWS Lambda the handler is `dist/lambda.handler` of the npm package with its production dependencies zipped beside it, behind an API Gateway HTTP API with payload format 2.0 and the `$default` stage (a named stage prefixes every path with its name, so each request would get a 404). Set `NBG_RATES_HTTP_HOSTS` to the public host name in either case, so the endpoint answers only for it. Optionally, `NBG_RATES_MIRROR_TABLE` names a DynamoDB table that the same function fills from NBG on a schedule and then answers from; unset, lookups go to NBG as before.
 
 ## Tools
 
@@ -365,6 +365,7 @@ Reading the resource fails with the same messages.
 | `NBG_RATES_BASE_URL`         | The NBG host to call. Defaults to `https://nbg.gov.ge`; a trailing slash is removed. Useful for testing.                                          |
 | `NBG_RATES_DEBUG`            | Set to `1` to log every upstream request to stderr. Include this log in bug reports.                                                              |
 | `NBG_RATES_HTTP_HOSTS`       | Host names the HTTP endpoint (`--http`, Lambda) answers for, comma separated. Unset or empty: any host.                                           |
+| `NBG_RATES_MIRROR_TABLE`     | The DynamoDB table of the hosted NBG mirror, read by the Lambda entry only; `--http` and stdio ignore it. Unset or empty: no mirror.              |
 | `NBG_RATES_OPENAI_CHALLENGE` | The token OpenAI's domain verification expects at `/.well-known/openai-apps-challenge`, served as plain text. Unset or empty: that path is a 404. |
 
 Set them in the client's configuration, for example:
