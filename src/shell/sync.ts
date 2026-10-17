@@ -3,7 +3,7 @@ import { isWindowMinute, MAX_EVENT_AGE_MS, type SyncKind } from '../core/sync-sc
 import type { Result } from '../core/types.js';
 import { STORE_OPERATION_TIMEOUT_MS, type MirrorStore } from './mirror-store.js';
 import type { NbgClient } from './nbg-client.js';
-import { runDailyRefetch, runRecheckSlice, type StepOutcome } from './sync-archive.js';
+import { runArchiveFill, runDailyRefetch, runRecheckSlice, type StepOutcome } from './sync-archive.js';
 import { runHourlyCheck, runWindowCheck, stoppedWindowDate, type CheckOutcome } from './sync-check.js';
 import { createSyncContext, type SyncContext, type SyncFailure } from './sync-publication.js';
 
@@ -116,11 +116,15 @@ const CHECKS: Readonly<
     Record<SyncKind, (context: SyncContext, state: MirrorState) => Promise<Result<CheckOutcome, SyncFailure>>>
 > = { hourly: runHourlyCheck, window: runWindowCheck };
 
-type Step = (context: SyncContext, state: MirrorState) => Promise<Result<StepOutcome, SyncFailure>>;
+/** A step's outcome; only 'deadline' stops the run, and the fill's 'progress' and 'complete' leave it ok. */
+type Step = (
+    context: SyncContext,
+    state: MirrorState,
+) => Promise<Result<StepOutcome | 'progress' | 'complete', SyncFailure>>;
 
 /** Each kind's steps after its check, in order, each from the state as the run claimed it. */
 const STEPS: Readonly<Record<SyncKind, ReadonlyArray<Step>>> = {
-    hourly: [runDailyRefetch, runRecheckSlice],
+    hourly: [runDailyRefetch, runRecheckSlice, runArchiveFill],
     window: [],
 };
 

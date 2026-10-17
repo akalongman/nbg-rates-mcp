@@ -1,5 +1,5 @@
-import { addDays, parseCalendarDate } from '../core/dates.js';
-import { inSpan, type MirrorState } from '../core/mirror.js';
+import { addDays, NBG_ARCHIVE_START, parseCalendarDate } from '../core/dates.js';
+import { extendRowsStart, inSpan, type MirrorState } from '../core/mirror.js';
 import {
     changedPublications,
     csvRequestCodes,
@@ -10,13 +10,14 @@ import {
 } from '../core/mirror-publication.js';
 import type { NbgCsvRow } from '../core/nbg-csv.js';
 import {
+    ARCHIVE_YEARS_PER_RUN,
     DAILY_REFETCH_FROM_HOUR,
     RECHECK_CYCLE_DAYS,
     RECHECK_SLICE_EVERY_HOURS,
     tbilisiClock,
 } from '../core/sync-schedule.js';
 import { err, ok, type CalendarDate, type Result } from '../core/types.js';
-import { STORE_OPERATION_TIMEOUT_MS, type StoredTables } from './mirror-store.js';
+import { STORE_OPERATION_TIMEOUT_MS, type StoredRows, type StoredTables } from './mirror-store.js';
 import {
     applyToState,
     resolvePublication,
@@ -59,14 +60,21 @@ function yearOf(date: CalendarDate): number {
     return Number(date.slice(0, 4));
 }
 
-/** `MM-DD` of a year from 0 to 9999, which every caller's year is: it comes from a CalendarDate. */
-function dayOfYear(year: number, monthDay: '01-01' | '12-31'): CalendarDate {
+function monthOf(date: CalendarDate): number {
+    return Number(date.slice(5, 7));
+}
+
+/** A valid `MM-DD` of a year from 0 to 9999, which every caller's year is: it comes from a CalendarDate. */
+function dayOfYear(year: number, monthDay: string): CalendarDate {
     const parsed = parseCalendarDate(`${String(year).padStart(4, '0')}-${monthDay}`);
     if (!parsed.ok) {
         throw new Error(`no ${monthDay} in the year ${year}`);
     }
     return parsed.value;
 }
+
+/** NBG_ARCHIVE_START as a CalendarDate. */
+const ARCHIVE_START = dayOfYear(Number(NBG_ARCHIVE_START.slice(0, 4)), NBG_ARCHIVE_START.slice(5));
 
 /** Saves the next publication to refetch, unless a run has already finished today's refetch. */
 function withRefetchCursor(state: MirrorState, today: CalendarDate, cursor: CalendarDate): MirrorState {
@@ -341,4 +349,89 @@ export async function runRecheckSlice(
         return recorded;
     }
     return ok(recorded.value.kind === 'deadline' ? 'deadline' : 'done');
+}
+
+/** The fill's samples for a range inside one year: each month's first day, or the range's start when that is later. */
+function monthSamples(range: DateRange): ReadonlyArray<CalendarDate> {
+    const year = yearOf(range.start);
+    const first = monthOf(range.start);
+    return Array.from({ length: monthOf(range.end) - first + 1 }, (_, index) =>
+        later(dayOfYear(year, `${String(first + index).padStart(2, '0')}-01`), range.start),
+    );
+}
+
+/**
+ * The archive rows of a range inside one year. The English tables of its month samples give the codes (their union),
+ * one CSV export over the range names them (AZN left out inside its filter gap), and one write stores an item per
+ * publication, observed before the CSV request; then the rows' start moves to the range's start. An empty export
+ * fails as empty_export. A failure or the deadline anywhere before the state write leaves the rows' start as it was.
+ */
+async function fillYear(context: SyncContext, range: DateRange): Promise<Result<'done' | 'deadline', SyncFailure>> {
+    const codes = new Set<string>();
+    for (const sample of monthSamples(range)) {
+        const table = await context.fetchDay(sample, 'en');
+        if (table.kind !== 'ok') {
+            return stoppedBy(table);
+        }
+        for (const code of tableCodes(table.value)) {
+            codes.add(code);
+        }
+    }
+    const observedAt = context.now().getTime();
+    const requested = csvRequestCodes([...codes].sort(), range.start, range.end);
+    const exported = await context.fetchRange(requested, range.start, range.end);
+    if (exported.kind !== 'ok') {
+        return stoppedBy(exported);
+    }
+    if (exported.value.length === 0) {
+        return err({ kind: 'empty_export' });
+    }
+    // One item per publication: DynamoDB refuses a batch that writes one key twice.
+    const items: ReadonlyArray<StoredRows> = [...groupByValidFrom(exported.value)]
+        .sort(([left], [right]) => (left < right ? -1 : 1))
+        .map(([validFrom, rows]) => ({ validFrom, rows, observedAt }));
+    if (!context.allows(STORE_OPERATION_TIMEOUT_MS)) {
+        return ok('deadline');
+    }
+    const written = await context.store.writeArchiveRows(items, context.signal());
+    if (!written.ok) {
+        return written;
+    }
+    const moved = await applyToState(context, (current) => extendRowsStart(current, range.start));
+    if (!moved.ok) {
+        return moved;
+    }
+    return ok(moved.value.kind === 'deadline' ? 'deadline' : 'done');
+}
+
+/**
+ * The archive rows' fill, from `state` as the run claimed it: up to ARCHIVE_YEARS_PER_RUN years, newest first, each
+ * by fillYear. The first year's range ends the day before the rows' start (the span's start without one), each later
+ * one the day before the previous one's start, and each starts at the later of its 1 January and NBG_ARCHIVE_START.
+ * Complete once the rows start at NBG_ARCHIVE_START, which asks and writes nothing when the claimed state already
+ * says so. Without a span there is nothing to fill back from: progress, with nothing asked or written. The fill never
+ * moves fresh-until and adds nothing to the run's committed count.
+ */
+export async function runArchiveFill(
+    context: SyncContext,
+    state: MirrorState,
+): Promise<Result<'progress' | 'complete' | 'deadline', SyncFailure>> {
+    const { span } = state;
+    if (span === undefined) {
+        return ok('progress');
+    }
+    let rowsStart = state.rowsStart ?? span.start;
+    for (let filled = 0; filled < ARCHIVE_YEARS_PER_RUN && rowsStart > ARCHIVE_START; filled += 1) {
+        const end = addDays(rowsStart, -1);
+        const range = { start: later(dayOfYear(yearOf(end), '01-01'), ARCHIVE_START), end };
+        const year = await fillYear(context, range);
+        if (!year.ok) {
+            return year;
+        }
+        if (year.value === 'deadline') {
+            return ok('deadline');
+        }
+        rowsStart = range.start;
+    }
+    return ok(rowsStart > ARCHIVE_START ? 'progress' : 'complete');
 }

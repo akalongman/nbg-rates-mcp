@@ -11,6 +11,7 @@ import {
     OCTOBER,
     setUp,
     SIGNAL,
+    skipArchiveFill,
     skipDailySteps,
     tableFrom,
     tbilisi,
@@ -299,6 +300,7 @@ describe('runSync: the hourly check', () => {
 
     it('does not read a code that left the latest table as a change to the publications before it', async () => {
         const harness = await bootstrapped();
+        await skipArchiveFill(harness);
         harness.fake.publish(publication(withoutCode(tableFixture('en', '2026-10-07'), 'AMD')));
         expect(await harness.run('2026-10-08T11:00')).toMatchObject({ committed: 1 });
         const withoutAmd = CODES.split(',')
@@ -314,6 +316,7 @@ describe('runSync: the hourly check', () => {
         const harness = await setUp({
             seed: { state: { span: { start: date('2026-10-01'), end: date('2026-10-09') } } },
         });
+        await skipArchiveFill(harness);
         const result = await harness.run('2026-10-08T11:00');
         expect(result).toMatchObject({ syncResult: 'ok', checked: true, committed: 5 });
         expect(harness.fake.requests.slice(0, 2)).toEqual([
@@ -550,6 +553,7 @@ describe('runSync: the deadline', () => {
 describe('runSync: two runs at once', () => {
     it('lets a held 16:00 run change neither a later commit of 2026-10-09 nor fresh-until 17:03', async () => {
         const harness = await bootstrapped();
+        await skipArchiveFill(harness);
         // NBG shows a 2026-10-09 table to the 16:00 run; the 17:01 window run later stores a newer one.
         harness.fake.publish(publication(tableFrom('2026-10-09', 2.6013)));
         const newer = publication(tableFrom('2026-10-09', 2.6111), { observedAt: at('2026-10-08T17:01:02') });

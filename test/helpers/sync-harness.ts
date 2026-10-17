@@ -1,5 +1,5 @@
 import { expect } from 'vitest';
-import { addDays } from '../../src/core/dates.js';
+import { addDays, NBG_ARCHIVE_START } from '../../src/core/dates.js';
 import type { MirrorState } from '../../src/core/mirror.js';
 import { tableCodes, type MirrorPublication } from '../../src/core/mirror-publication.js';
 import type { NbgCsvRow } from '../../src/core/nbg-csv.js';
@@ -203,17 +203,27 @@ export async function setUp(
 
 /**
  * Makes the hourly kind's steps after its check not due on `today` (YYYY-MM-DD), for cases about the check alone:
- * records today's refetch as done, and a re-check cycle started at today's midnight as finished, so no slice is due
- * for the next 7 days. Writes the state once, so call it before taking a mark.
+ * records today's refetch as done, a re-check cycle started at today's midnight as finished, so no slice is due for
+ * the next 7 days, and the archive rows' fill as complete. Writes the state once, so call it before taking a mark.
  */
 export async function skipDailySteps(harness: Harness, today: string): Promise<void> {
     const midnight = at(`${today}T00:00`);
     await seedMirror(harness.store, {
         state: {
+            rowsStart: date(NBG_ARCHIVE_START),
             refetch: { day: date(today) },
             recheck: { cycleStartedAt: midnight, lastSliceAt: midnight, nextYear: Number(today.slice(0, 4)) + 1 },
         },
     });
+}
+
+/**
+ * Records the archive rows' fill as complete (rows from NBG_ARCHIVE_START), for cases whose refetch and slice still
+ * run over a mirror that holds no archive rows: a new re-check cycle then starts at 1995, where nothing is stored, so
+ * its slice asks nothing, as one over the October span alone does. Writes the state once, so call it before a mark.
+ */
+export async function skipArchiveFill(harness: Harness): Promise<void> {
+    await seedMirror(harness.store, { state: { rowsStart: date(NBG_ARCHIVE_START) } });
 }
 
 /** A harness whose 10:00 run on Thursday 2026-10-08 has bootstrapped the mirror. */
