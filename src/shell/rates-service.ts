@@ -1,15 +1,7 @@
+import { TBILISI_TIME_ZONE, rejectBeyondTomorrow, todayIn } from '../core/dates.js';
+import { assembleHistory, planHistory } from '../core/history.js';
+import { selectCurrencies, snapshotFromDay } from '../core/normalize.js';
 import {
-    NBG_ARCHIVE_START,
-    TBILISI_TIME_ZONE,
-    addDays,
-    enumerateDays,
-    rejectBeyondTomorrow,
-    todayIn,
-} from '../core/dates.js';
-import { CALENDAR_CURRENCY, HISTORY_LOOKBACK_DAYS, assembleHistory } from '../core/history.js';
-import { normalizeSnapshot, requirePublished, selectCurrencies } from '../core/normalize.js';
-import {
-    err,
     ok,
     type CalendarDate,
     type CurrencyCode,
@@ -50,7 +42,7 @@ export function createRatesService(deps: { client: NbgClient; cache: SnapshotCac
         if (!day.ok) {
             return day;
         }
-        const snapshot = requirePublished(normalizeSnapshot(day.value, date), today);
+        const snapshot = snapshotFromDay(day.value, date, today);
         if (snapshot.ok) {
             deps.cache.set(language, date, snapshot.value, deps.now());
         }
@@ -72,27 +64,16 @@ export function createRatesService(deps: { client: NbgClient; cache: SnapshotCac
         },
 
         async getHistory({ currency, from, to }) {
-            const days = enumerateDays(from, to);
-            if (!days.ok) {
-                return days;
-            }
             const today = todayIn(TBILISI_TIME_ZONE, deps.now());
-            const reachable = rejectBeyondTomorrow(to, today);
-            if (!reachable.ok) {
-                return reachable;
+            const plan = planHistory(currency, from, to, today);
+            if (!plan.ok) {
+                return plan;
             }
-            if (to < NBG_ARCHIVE_START) {
-                // NBG has no rate before its archive start: answer as assembleHistory does for an empty export,
-                // without the request. The lookback start of such a range can also fall before the year 0000,
-                // where addDays throws.
-                return err({ kind: 'no_data_for_date', date: from, currency });
-            }
-            const currencies = currency === CALENDAR_CURRENCY ? [currency] : [currency, CALENDAR_CURRENCY];
-            const rows = await deps.client.fetchRange(currencies, addDays(from, -HISTORY_LOOKBACK_DAYS), to);
+            const rows = await deps.client.fetchRange(plan.value.currencies, plan.value.start, plan.value.end);
             if (!rows.ok) {
                 return rows;
             }
-            return assembleHistory(currency, days.value, rows.value, today);
+            return assembleHistory(currency, plan.value.days, rows.value, today);
         },
     };
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { code, date } from '../../test/helpers/values.js';
 import { enumerateDays } from './dates.js';
-import { assembleHistory } from './history.js';
+import { assembleHistory, planHistory } from './history.js';
 import { NBG_CSV_HEADER, parseNbgCsv, type NbgCsvRow } from './nbg-csv.js';
 import type { CalendarDate } from './types.js';
 
@@ -255,5 +255,57 @@ describe('assembleHistory', () => {
 
     it('throws when given no days (programmer error: enumerateDays always returns at least one)', () => {
         expect(() => assembleHistory(code('USD'), [], rows(OCTOBER_2026), TODAY)).toThrow();
+    });
+});
+
+describe('planHistory', () => {
+    it('asks for the range and the 31 days before it, in the currency alone when it is the calendar currency', () => {
+        const result = planHistory(code('USD'), date('2026-10-01'), date('2026-10-07'), TODAY);
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.value).toMatchObject({
+                currency: 'USD',
+                currencies: ['USD'],
+                start: '2026-08-31',
+                end: '2026-10-07',
+            });
+            expect(result.value.days).toEqual(days('2026-10-01', '2026-10-07'));
+            expect(result.value.days).toHaveLength(7);
+        }
+    });
+
+    it('adds the calendar currency USD after any other currency', () => {
+        const result = planHistory(code('AMD'), date('2026-10-03'), date('2026-10-05'), TODAY);
+        expect(result.ok && result.value).toMatchObject({
+            currency: 'AMD',
+            currencies: ['AMD', 'USD'],
+            start: '2026-09-02',
+            end: '2026-10-05',
+        });
+    });
+
+    it('rejects a range longer than 366 days', () => {
+        expect(planHistory(code('USD'), date('2024-01-01'), date('2025-01-01'), TODAY)).toEqual({
+            ok: false,
+            error: { kind: 'range_too_long', days: 367, max: 366 },
+        });
+    });
+
+    it('rejects a range ending after tomorrow', () => {
+        expect(planHistory(code('USD'), date('2026-10-01'), date('2026-10-10'), TODAY)).toEqual({
+            ok: false,
+            error: { kind: 'rate_not_published', date: '2026-10-10', latestEffectiveDate: undefined, today: TODAY },
+        });
+    });
+
+    it('answers no_data_for_date on from for a range before the archive, the year 0000 included', () => {
+        expect(planHistory(code('USD'), date('1995-10-01'), date('1995-10-13'), TODAY)).toEqual({
+            ok: false,
+            error: { kind: 'no_data_for_date', date: '1995-10-01', currency: 'USD' },
+        });
+        expect(planHistory(code('USD'), date('0000-01-15'), date('0000-01-20'), TODAY)).toEqual({
+            ok: false,
+            error: { kind: 'no_data_for_date', date: '0000-01-15', currency: 'USD' },
+        });
     });
 });

@@ -66,6 +66,15 @@ export function requirePublished(snapshot: RatesSnapshot, today: CalendarDate): 
     });
 }
 
+/** The snapshot one NBG table gives for the requested date, accepted only as requirePublished accepts it. */
+export function snapshotFromDay(
+    day: NbgDay,
+    requestedDate: CalendarDate,
+    today: CalendarDate,
+): Result<RatesSnapshot, RatesError> {
+    return requirePublished(normalizeSnapshot(day, requestedDate), today);
+}
+
 export function selectCurrencies(snapshot: RatesSnapshot, codes: ReadonlyArray<CurrencyCode>): RatesSnapshot {
     const byCode = new Map(snapshot.rates.map((entry) => [entry.code, entry]));
     const rates: RateEntry[] = [];

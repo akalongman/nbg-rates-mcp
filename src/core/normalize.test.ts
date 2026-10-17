@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { loadFixture } from '../../test/helpers/fixtures.js';
+import { tableFixture } from '../../test/helpers/publications.js';
 import { code, date } from '../../test/helpers/values.js';
 import { parseNbgResponse, type NbgDay } from './nbg-schema.js';
-import { normalizeSnapshot, perUnit, perUnitDecimals, requirePublished, selectCurrencies } from './normalize.js';
+import {
+    normalizeSnapshot,
+    perUnit,
+    perUnitDecimals,
+    requirePublished,
+    selectCurrencies,
+    snapshotFromDay,
+} from './normalize.js';
 
 function day(fixture: string): NbgDay {
     const parsed = parseNbgResponse(loadFixture(fixture));
@@ -150,6 +158,34 @@ describe('requirePublished', () => {
     it('rejects a far-future date', () => {
         const future = normalizeSnapshot(day('en-2026-10-07'), date('2099-01-01'));
         expect(requirePublished(future, date('2026-10-08')).ok).toBe(false);
+    });
+});
+
+describe('snapshotFromDay', () => {
+    it('answers a carried-over day with the table in force', () => {
+        const result = snapshotFromDay(tableFixture('en', '2026-10-03'), date('2026-10-05'), date('2026-10-08'));
+        expect(result.ok && result.value).toMatchObject({
+            requestedDate: '2026-10-05',
+            effectiveDate: '2026-10-03',
+            carriedOver: true,
+        });
+    });
+
+    it('rejects a day NBG has not published yet, naming the latest effective date', () => {
+        expect(snapshotFromDay(tableFixture('en', '2026-10-07'), date('2026-10-09'), date('2026-10-08'))).toEqual({
+            ok: false,
+            error: {
+                kind: 'rate_not_published',
+                date: '2026-10-09',
+                latestEffectiveDate: '2026-10-07',
+                today: '2026-10-08',
+            },
+        });
+    });
+
+    it('rejects a table valid from after the requested day as a shape change', () => {
+        const result = snapshotFromDay(tableFixture('en', '2026-10-07'), date('2026-10-06'), date('2026-10-08'));
+        expect(result.ok === false && result.error.kind).toBe('upstream_shape_changed');
     });
 });
 
