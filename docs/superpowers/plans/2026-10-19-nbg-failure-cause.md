@@ -170,7 +170,7 @@ Expected: FAIL on the new fields.
 - `CHANGELOG.md`, in `## 0.7.0`, after its `Added:` paragraph, this paragraph verbatim:
 
   ```markdown
-  Changed: a hosted request's log line names the cause of the NBG failure it met (`nbgCause`, for example `HTTP 503 after retry` or `network UND_ERR_SOCKET after retry`, else null), and a sync run's line names the cause of the NBG failure that failed it (`syncCause`). A cause is built from a fixed vocabulary and never carries a date, a currency, a URL or text from NBG's response.
+  Changed: a hosted request's log line names the cause of the NBG failure it met (`nbgCause`, for example `HTTP 503 after retry` or `network UND_ERR_SOCKET after retry`, else null), and a sync run's line names the cause of the NBG failure that failed it (`syncCause`). A cause is built from a fixed vocabulary and carries nothing from the request, its URL or the body of NBG's response: of the response it names only the status and the media type, never a date, a currency or an amount a user asked for.
   ```
 - Specs: the hosted-endpoint spec's `RequestLogLine` block gains the `nbgCause` line after `nbgError`; the alarm spec's "The log line" section gains one bullet naming `nbgCause` and pointing to the 2026-10-19 design; the mirror spec's log line bullet ("Writes one log line per run") names `syncCause` beside the failure kind.
 

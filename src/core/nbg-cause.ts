@@ -3,12 +3,13 @@ import type { NbgCause } from './types.js';
 /**
  * The cause of an NBG failure, made to be logged. A cause is one fixed category and at most one value, and a value is
  * used only when it passes its rule below; one that fails is dropped, never cleaned. So a cause carries nothing from
- * the user's request, the request URL or NBG's response body: no amount, date, currency code, URL or response text.
+ * the user's request, the request URL or NBG's response body: an error code or message passes only when its rule rules
+ * those out, and the status and the media type come from NBG's status line and header, never from its body.
  */
 
 /** Four or more upper-case letters, digits and underscores, so never a three-letter currency code. */
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{3,63}$/;
-/** Lower-case letters and spaces only, so never a URL, a date, a number or a currency code. */
+/** Lower-case letters and spaces only, so never a URL, a date, a number or an upper-case currency code. */
 const CAUSE_MESSAGE = /^[a-z][a-z ]{0,59}$/;
 const MEDIA_TYPE = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/;
 const MAX_CAUSE_LENGTH = 100;
