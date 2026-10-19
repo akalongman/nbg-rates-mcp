@@ -9,6 +9,7 @@ import {
     tableValidFrom,
     type MirrorPublication,
 } from '../core/mirror-publication.js';
+import { NBG_CAUSE } from '../core/nbg-cause.js';
 import type { NbgCsvRow } from '../core/nbg-csv.js';
 import type { NbgDay } from '../core/nbg-schema.js';
 import {
@@ -116,7 +117,13 @@ export function createSyncContext(options: SyncContextOptions): SyncContext {
  * already an NBG failure.
  */
 export function syncNbgFailure(error: RatesError): NbgFailure {
-    return asNbgFailure(error) ?? { kind: 'upstream_shape_changed', detail: `NBG answered ${error.kind}` };
+    return (
+        asNbgFailure(error) ?? {
+            kind: 'upstream_shape_changed',
+            detail: `NBG answered ${error.kind}`,
+            cause: NBG_CAUSE.shapeAnswer,
+        }
+    );
 }
 
 /** A fetch that ended the work: the deadline, or a failure. */

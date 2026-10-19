@@ -1,5 +1,6 @@
 import * as z from 'zod';
 import { parseCalendarDate } from './dates.js';
+import { NBG_CAUSE } from './nbg-cause.js';
 import { formatIssues } from './schema.js';
 import { err, ok, type RatesError, type Result } from './types.js';
 
@@ -56,7 +57,11 @@ export type NbgDay = z.infer<typeof nbgDaySchema>;
 export function parseNbgResponse(json: unknown): Result<ReadonlyArray<NbgDay>, RatesError> {
     const parsed = nbgResponseSchema.safeParse(json);
     if (!parsed.success) {
-        return err({ kind: 'upstream_shape_changed', detail: formatIssues(parsed.error.issues) });
+        return err({
+            kind: 'upstream_shape_changed',
+            detail: formatIssues(parsed.error.issues),
+            cause: NBG_CAUSE.shapeJson,
+        });
     }
     return ok(parsed.data);
 }

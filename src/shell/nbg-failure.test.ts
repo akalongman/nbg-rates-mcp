@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { code, date } from '../../test/helpers/values.js';
+import { afterRetry, httpCause, NBG_CAUSE } from '../core/nbg-cause.js';
 import { err, ok, type HistorySeries, type RatesError, type RatesSnapshot, type Result } from '../core/types.js';
 import {
     asNbgFailure,
@@ -49,8 +50,8 @@ function kinds(failures: ReadonlyArray<NbgFailure>): NbgFailureKind[] {
 
 describe('nbgFailureKind', () => {
     it.each<RatesError>([
-        { kind: 'upstream_unavailable', detail: 'x' },
-        { kind: 'upstream_shape_changed', detail: 'x' },
+        { kind: 'upstream_unavailable', detail: 'x', cause: httpCause(503) },
+        { kind: 'upstream_shape_changed', detail: 'x', cause: NBG_CAUSE.shapeJson },
     ])('counts $kind', (error) => {
         expect(nbgFailureKind(error)).toBe(error.kind);
     });
@@ -70,8 +71,8 @@ describe('nbgFailureKind', () => {
 
 describe('asNbgFailure', () => {
     it.each<RatesError>([
-        { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' },
-        { kind: 'upstream_shape_changed', detail: 'missing header' },
+        { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry', cause: afterRetry(httpCause(503)) },
+        { kind: 'upstream_shape_changed', detail: 'missing header', cause: NBG_CAUSE.shapeCsvHeader },
     ])('returns $kind itself', (error) => {
         expect(asNbgFailure(error)).toBe(error);
     });
@@ -83,7 +84,11 @@ describe('asNbgFailure', () => {
 
 describe('reportingNbgFailures', () => {
     it('reports an unavailable NBG behind getSnapshot and returns the same result', async () => {
-        const failed = err<RatesError>({ kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' });
+        const failed = err<RatesError>({
+            kind: 'upstream_unavailable',
+            detail: 'HTTP 503 after retry',
+            cause: afterRetry(httpCause(503)),
+        });
         const asked: unknown[] = [];
         const inner: RatesService = {
             getSnapshot: (args) => {
@@ -100,7 +105,11 @@ describe('reportingNbgFailures', () => {
     });
 
     it('reports a history that NBG answered in a changed shape', async () => {
-        const failed = err<RatesError>({ kind: 'upstream_shape_changed', detail: 'missing header' });
+        const failed = err<RatesError>({
+            kind: 'upstream_shape_changed',
+            detail: 'missing header',
+            cause: NBG_CAUSE.shapeCsvHeader,
+        });
         const { service, reported } = reporting(serviceAnswering(ok(SNAPSHOT), failed));
         const result = await service.getHistory({
             currency: code('USD'),

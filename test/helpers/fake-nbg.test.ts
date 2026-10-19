@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { afterRetry, httpCause } from '../../src/core/nbg-cause.js';
 import { parseNbgCsv, type NbgCsvRow } from '../../src/core/nbg-csv.js';
 import { err, ok } from '../../src/core/types.js';
 import { createFakeNbg } from './fake-nbg.js';
@@ -123,7 +124,11 @@ describe('createFakeNbg', () => {
 
     it('answers every request with the failWith error until cleared, still recording it', async () => {
         const fake = createFakeNbg(OCTOBER);
-        const outage = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' } as const;
+        const outage = {
+            kind: 'upstream_unavailable',
+            detail: 'HTTP 503 after retry',
+            cause: afterRetry(httpCause(503)),
+        } as const;
         fake.failWith(outage);
         expect(await fake.client.fetchDay(date('2026-10-07'), 'en')).toEqual(err(outage));
         expect(await fake.client.fetchRange([USD], date('2026-10-07'), date('2026-10-07'))).toEqual(err(outage));

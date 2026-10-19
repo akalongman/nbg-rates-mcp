@@ -22,6 +22,7 @@ import { date } from '../../test/helpers/values.js';
 import { NBG_ARCHIVE_START } from '../core/dates.js';
 import { EMPTY_MIRROR_STATE, markUnresolved, type MirrorState } from '../core/mirror.js';
 import type { MirrorPublication } from '../core/mirror-publication.js';
+import { NBG_CAUSE } from '../core/nbg-cause.js';
 import type { NbgDay } from '../core/nbg-schema.js';
 import { err, ok, type RatesError } from '../core/types.js';
 import type { StoredRows } from './mirror-store.js';
@@ -47,7 +48,11 @@ vi.mock('./sync-archive.js', async (importOriginal) => {
 
 /** The check's CSV on Thursday 2026-10-08: the last 7 days and tomorrow. */
 const CHECK_CSV = `range:${CODES}:2026-10-01:2026-10-09`;
-const SHAPE_CHANGED: RatesError = { kind: 'upstream_shape_changed', detail: 'rates is not a number' };
+const SHAPE_CHANGED: RatesError = {
+    kind: 'upstream_shape_changed',
+    detail: 'rates is not a number',
+    cause: NBG_CAUSE.shapeJson,
+};
 /** When the archive rows below were fetched: before every run in this file. */
 const ARCHIVED_AT = Date.parse('2026-09-01T00:00:00.000Z');
 

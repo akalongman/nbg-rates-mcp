@@ -1,6 +1,7 @@
 import { parseCalendarDate } from './dates.js';
+import { NBG_CAUSE } from './nbg-cause.js';
 import { isNbgQuantity } from './nbg-schema.js';
-import { err, ok, type CalendarDate, type RatesError, type Result } from './types.js';
+import { err, ok, type CalendarDate, type NbgCause, type RatesError, type Result } from './types.js';
 
 export const NBG_CSV_HEADER = 'Code,Quantity,Rate,Diff,Name,Date,ValidFromDate';
 
@@ -20,8 +21,8 @@ const RATE = /^\d+(\.\d{1,4})?$/;
 const INTEGER = /^\d+$/;
 const CODE = /^[A-Z]{3}$/;
 
-function shapeChanged(detail: string): { readonly ok: false; readonly error: RatesError } {
-    return err({ kind: 'upstream_shape_changed', detail });
+function shapeChanged(detail: string, cause: NbgCause): { readonly ok: false; readonly error: RatesError } {
+    return err({ kind: 'upstream_shape_changed', detail, cause });
 }
 
 function parseUsDate(value: string): CalendarDate | undefined {
@@ -41,17 +42,20 @@ export function parseNbgCsv(text: string): Result<ReadonlyArray<NbgCsvRow>, Rate
         .filter((line) => line !== '');
     const [header, ...dataLines] = lines;
     if (header !== NBG_CSV_HEADER) {
-        return shapeChanged(`unexpected CSV header: ${(header ?? '(empty)').slice(0, 80)}`);
+        return shapeChanged(`unexpected CSV header: ${(header ?? '(empty)').slice(0, 80)}`, NBG_CAUSE.shapeCsvHeader);
     }
     const rows: NbgCsvRow[] = [];
     for (const [index, line] of dataLines.entries()) {
         const lineNumber = index + 2;
         if (line.includes('"')) {
-            return shapeChanged(`CSV line ${lineNumber} has a quoted field`);
+            return shapeChanged(`CSV line ${lineNumber} has a quoted field`, NBG_CAUSE.shapeCsvLine);
         }
         const fields = line.split(',');
         if (fields.length !== 7) {
-            return shapeChanged(`CSV line ${lineNumber} has ${fields.length} fields, expected 7`);
+            return shapeChanged(
+                `CSV line ${lineNumber} has ${fields.length} fields, expected 7`,
+                NBG_CAUSE.shapeCsvLine,
+            );
         }
         const [code = '', quantityField = '', rateField = '', , , publishedField = '', validFromField = ''] = fields;
         const quantity = Number(quantityField);
@@ -66,7 +70,7 @@ export function parseNbgCsv(text: string): Result<ReadonlyArray<NbgCsvRow>, Rate
             publishedOn === undefined ||
             validFrom === undefined
         ) {
-            return shapeChanged(`CSV line ${lineNumber} is malformed: ${line.slice(0, 80)}`);
+            return shapeChanged(`CSV line ${lineNumber} is malformed: ${line.slice(0, 80)}`, NBG_CAUSE.shapeCsvLine);
         }
         rows.push({ code, quantity, rate: Number(rateField), publishedOn, validFrom });
     }

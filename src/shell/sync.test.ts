@@ -24,6 +24,7 @@ import { date } from '../../test/helpers/values.js';
 import { addDays } from '../core/dates.js';
 import { markUnresolved, recordFreshUntil } from '../core/mirror.js';
 import type { MirrorPublication } from '../core/mirror-publication.js';
+import { NBG_CAUSE } from '../core/nbg-cause.js';
 import { err } from '../core/types.js';
 import { createSnapshotCache } from './cache.js';
 import type { NbgClient } from './nbg-client.js';
@@ -370,7 +371,11 @@ describe('runSync: the hourly check', () => {
 
     it('fails a bootstrap whose first table fails, with no span', async () => {
         const harness = await setUp();
-        harness.fake.failWith({ kind: 'upstream_shape_changed', detail: 'rates is not a number' });
+        harness.fake.failWith({
+            kind: 'upstream_shape_changed',
+            detail: 'rates is not a number',
+            cause: NBG_CAUSE.shapeJson,
+        });
         const result = await harness.run('2026-10-08T10:00');
         expect(result).toMatchObject({ syncResult: 'failed', syncDetail: 'upstream_shape_changed', span: null });
         expect(harness.fake.requests).toEqual(['day:en:2026-10-08']);

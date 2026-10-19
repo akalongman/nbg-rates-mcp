@@ -4,12 +4,12 @@ import { NBG_CSV_HEADER, parseNbgCsv } from './nbg-csv.js';
 
 const BOM = '\uFEFF';
 
-function shapeDetail(text: string): string {
+function shapeChange(text: string): { readonly detail: string; readonly cause: string } {
     const result = parseNbgCsv(text);
     if (result.ok || result.error.kind !== 'upstream_shape_changed') {
         throw new Error(`expected a shape change, got ${JSON.stringify(result)}`);
     }
-    return result.error.detail;
+    return result.error;
 }
 
 describe('parseNbgCsv', () => {
@@ -47,17 +47,20 @@ describe('parseNbgCsv', () => {
     });
 
     it('rejects a changed header', () => {
-        expect(shapeDetail(`${BOM}Code,Quantity,Rate,Name,Date\r\n`)).toContain('header');
-        expect(shapeDetail('')).toContain('header');
+        for (const text of [`${BOM}Code,Quantity,Rate,Name,Date\r\n`, '']) {
+            const change = shapeChange(text);
+            expect(change.detail).toContain('header');
+            expect(change.cause).toBe('shape csv header');
+        }
     });
 
     it('rejects a quoted field and a wrong field count', () => {
-        expect(shapeDetail(`${NBG_CSV_HEADER}\nUSD,1,2.6039,0.0003,"US, Dollar",10/2/2026,10/3/2026\n`)).toContain(
-            'quoted',
-        );
-        expect(shapeDetail(`${NBG_CSV_HEADER}\nUSD,1,2.6039,0.0003,US,Dollar,10/2/2026,10/3/2026\n`)).toContain(
-            'fields',
-        );
+        const quoted = shapeChange(`${NBG_CSV_HEADER}\nUSD,1,2.6039,0.0003,"US, Dollar",10/2/2026,10/3/2026\n`);
+        expect(quoted.detail).toContain('quoted');
+        expect(quoted.cause).toBe('shape csv line');
+        const fields = shapeChange(`${NBG_CSV_HEADER}\nUSD,1,2.6039,0.0003,US,Dollar,10/2/2026,10/3/2026\n`);
+        expect(fields.detail).toContain('fields');
+        expect(fields.cause).toBe('shape csv line');
     });
 
     it('rejects malformed values', () => {
@@ -72,7 +75,9 @@ describe('parseNbgCsv', () => {
             'USD,1,0.0000,0.0003,x,10/2/2026,10/3/2026',
         ];
         for (const line of malformed) {
-            expect(parseNbgCsv(`${NBG_CSV_HEADER}\n${line}\n`).ok, line).toBe(false);
+            const { cause } = shapeChange(`${NBG_CSV_HEADER}\n${line}\n`);
+            expect(cause, line).toBe('shape csv line');
+            expect(cause, line).not.toMatch(/usd|\d/i); // neither the currency nor a date of the line
         }
     });
 });

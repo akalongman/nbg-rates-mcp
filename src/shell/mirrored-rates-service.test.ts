@@ -15,6 +15,7 @@ import { code, date } from '../../test/helpers/values.js';
 import { addDays } from '../core/dates.js';
 import type { MirrorSpan } from '../core/mirror.js';
 import { tableValidFrom, type MirrorPublication } from '../core/mirror-publication.js';
+import { afterRetry, httpCause } from '../core/nbg-cause.js';
 import type { NbgDay } from '../core/nbg-schema.js';
 import { snapshotFromDay } from '../core/normalize.js';
 import { err, type CalendarDate, type CurrencyCode, type Language } from '../core/types.js';
@@ -35,7 +36,11 @@ const FRESH_UNTIL = Date.parse('2026-10-08T07:05:00Z');
 const STALE_SINCE = Date.parse('2026-10-08T05:05:00Z');
 const SPAN: MirrorSpan = { start: date('2026-10-01'), end: date('2026-10-09') };
 const ROWS_START = date('2024-01-01');
-const UNAVAILABLE: NbgFailure = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
+const UNAVAILABLE: NbgFailure = {
+    kind: 'upstream_unavailable',
+    detail: 'HTTP 503 after retry',
+    cause: afterRetry(httpCause(503)),
+};
 const SIGNAL = new AbortController().signal;
 const USD = code('USD');
 const EUR = code('EUR');

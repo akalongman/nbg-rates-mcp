@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { csvExport, loadFixture } from '../../test/helpers/fixtures.js';
 import { code, date } from '../../test/helpers/values.js';
+import { afterRetry, httpCause, NBG_CAUSE } from '../core/nbg-cause.js';
 import { parseNbgCsv } from '../core/nbg-csv.js';
 import { parseNbgResponse, type NbgDay } from '../core/nbg-schema.js';
 import { err, ok, type Language, type RatesError, type Result } from '../core/types.js';
@@ -31,6 +32,12 @@ const RECORDED = new Set([
     '1995-01-01',
 ]);
 
+const OUTAGE: NbgFailure = {
+    kind: 'upstream_unavailable',
+    detail: 'HTTP 503 after retry',
+    cause: afterRetry(httpCause(503)),
+};
+
 /** Fake client: serves recorded fixtures, answers unknown dates with the latest table like NBG, counts calls, can fail. */
 function fakeClient(options: { failDate?: string; failRange?: boolean } = {}) {
     const calls: string[] = [];
@@ -38,7 +45,7 @@ function fakeClient(options: { failDate?: string; failRange?: boolean } = {}) {
         fetchDay(requested, language) {
             calls.push(`day:${language}:${requested}`);
             if (requested === options.failDate) {
-                return Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' }));
+                return Promise.resolve(err(OUTAGE));
             }
             const value = RECORDED.has(requested) && language === 'en' ? requested : '2026-10-07';
             return Promise.resolve(fixtureDay(language === 'ka' ? 'ka' : 'en', value));
@@ -46,7 +53,7 @@ function fakeClient(options: { failDate?: string; failRange?: boolean } = {}) {
         fetchRange(currencies, start, end) {
             calls.push(`range:${currencies.join(',')}:${start}:${end}`);
             if (options.failRange === true) {
-                return Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' }));
+                return Promise.resolve(err(OUTAGE));
             }
             return Promise.resolve(parseNbgCsv(csvExport(currencies, start, end)));
         },
@@ -130,12 +137,16 @@ describe('getSnapshot', () => {
     it('passes upstream errors through', async () => {
         const { service: rates } = service({ failDate: '2026-10-07' });
         const result = await rates.getSnapshot({ date: date('2026-10-07'), language: 'en' });
-        expect(result).toEqual({ ok: false, error: { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' } });
+        expect(result).toEqual(err(OUTAGE));
     });
 
     it('returns the NBG failure the request already met without asking NBG, even for a far-future date', async () => {
         const { service: rates, calls } = service();
-        const outage: NbgFailure = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
+        const outage: NbgFailure = {
+            kind: 'upstream_unavailable',
+            detail: 'HTTP 503 after retry',
+            cause: afterRetry(httpCause(503)),
+        };
         for (const requested of ['2026-10-07', '2099-01-01']) {
             const result = await rates.getSnapshot({ date: date(requested), language: 'en', withoutNbg: outage });
             expect(result).toEqual(err(outage));
@@ -146,7 +157,11 @@ describe('getSnapshot', () => {
     it('returns the NBG failure the request already met before reading the cache', async () => {
         const { service: rates, calls } = service();
         await rates.getSnapshot({ date: date('2026-10-07'), language: 'en' });
-        const outage: NbgFailure = { kind: 'upstream_shape_changed', detail: 'missing header' };
+        const outage: NbgFailure = {
+            kind: 'upstream_shape_changed',
+            detail: 'missing header',
+            cause: NBG_CAUSE.shapeCsvHeader,
+        };
         const result = await rates.getSnapshot({ date: date('2026-10-07'), language: 'en', withoutNbg: outage });
         expect(result).toEqual(err(outage));
         expect(calls).toEqual(['day:en:2026-10-07']);

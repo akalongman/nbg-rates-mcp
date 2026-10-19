@@ -133,8 +133,13 @@ describe('parseNbgResponse', () => {
     });
 
     it('rejects non-JSON-shaped input', () => {
-        expect(parseNbgResponse('<html>').ok).toBe(false);
-        expect(parseNbgResponse(null).ok).toBe(false);
+        for (const input of ['<html>', null]) {
+            const result = parseNbgResponse(input);
+            expect(result.ok, String(input)).toBe(false);
+            expect(result.ok === false && result.error.kind === 'upstream_shape_changed' && result.error.cause).toBe(
+                'shape json',
+            );
+        }
     });
 });
 

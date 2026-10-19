@@ -1,4 +1,5 @@
 import { calendarDateFromTimestamp, isSettled } from './dates.js';
+import { NBG_CAUSE } from './nbg-cause.js';
 import type { NbgDay } from './nbg-schema.js';
 import {
     err,
@@ -53,6 +54,7 @@ export function requirePublished(snapshot: RatesSnapshot, today: CalendarDate): 
         return err({
             kind: 'upstream_shape_changed',
             detail: `NBG answered ${snapshot.requestedDate} with a table valid from ${snapshot.effectiveDate}`,
+            cause: NBG_CAUSE.shapeTableDate,
         });
     }
     if (isSettled(snapshot.requestedDate, snapshot.effectiveDate, today)) {

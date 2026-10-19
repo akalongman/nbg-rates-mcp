@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { afterRetry, httpCause, NBG_CAUSE } from '../core/nbg-cause.js';
 import { createLookupScopes, newLookupScope, type LookupScopes } from './lookup-scope.js';
 import type { NbgFailure } from './nbg-failure.js';
 
-const UNAVAILABLE: NbgFailure = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
-const SHAPE_CHANGED: NbgFailure = { kind: 'upstream_shape_changed', detail: 'missing header' };
+const UNAVAILABLE: NbgFailure = {
+    kind: 'upstream_unavailable',
+    detail: 'HTTP 503 after retry',
+    cause: afterRetry(httpCause(503)),
+};
+const SHAPE_CHANGED: NbgFailure = {
+    kind: 'upstream_shape_changed',
+    detail: 'missing header',
+    cause: NBG_CAUSE.shapeCsvHeader,
+};
 
 /** Marks the scope the caller runs in as having stopped its past-table writes. */
 function stopFillingCurrent(scopes: LookupScopes): void {

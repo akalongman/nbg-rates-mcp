@@ -152,6 +152,7 @@ describe('requirePublished', () => {
         if (!result.ok && result.error.kind === 'upstream_shape_changed') {
             expect(result.error.detail).toContain('2005-03-15');
             expect(result.error.detail).toContain('2026-10-07');
+            expect(result.error.cause).toBe('shape table date');
         }
     });
 

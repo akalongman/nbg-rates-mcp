@@ -79,14 +79,33 @@ describe('createNbgClient', () => {
             if (!result.ok) {
                 expect(result.error.kind).toBe('upstream_unavailable');
                 expect(result.error.kind === 'upstream_unavailable' && result.error.detail).toContain('503');
+                expect(result.error.kind === 'upstream_unavailable' && result.error.cause).toBe('HTTP 503 after retry');
             }
+            expect(server.requests).toHaveLength(2);
+        });
+
+        it("ends with the second attempt's cause when a 503 is followed by a 404", async () => {
+            let calls = 0;
+            server.setResponder(() => {
+                calls += 1;
+                return calls === 1
+                    ? { status: 503, body: 'down', contentType: 'text/plain' }
+                    : { status: 404, body: 'gone', contentType: 'text/plain' };
+            });
+            const result = await client().fetchDay(date('2026-10-07'), 'en');
+            expect(result).toEqual({
+                ok: false,
+                error: { kind: 'upstream_unavailable', detail: 'HTTP 404', cause: 'HTTP 404' },
+            });
             expect(server.requests).toHaveLength(2);
         });
 
         it('does not retry a 404', async () => {
             server.setResponder(() => ({ status: 404, body: 'gone', contentType: 'text/plain' }));
             const result = await client().fetchDay(date('2026-10-07'), 'en');
-            expect(result.ok).toBe(false);
+            expect(result.ok === false && result.error.kind === 'upstream_unavailable' && result.error.cause).toBe(
+                'HTTP 404',
+            );
             expect(server.requests).toHaveLength(1);
         });
 
@@ -96,13 +115,17 @@ describe('createNbgClient', () => {
             expect(result.ok).toBe(false);
             if (!result.ok) {
                 expect(result.error.kind).toBe('upstream_unavailable');
+                expect(result.error.kind === 'upstream_unavailable' && result.error.cause).toBe('timeout after retry');
             }
         });
 
         it('makes one attempt without retry and reports its own detail', async () => {
             server.setResponder(() => ({ status: 503, body: 'down', contentType: 'text/plain' }));
             const result = await client({ retry: false }).fetchDay(date('2026-10-07'), 'en');
-            expect(result).toEqual({ ok: false, error: { kind: 'upstream_unavailable', detail: 'HTTP 503' } });
+            expect(result).toEqual({
+                ok: false,
+                error: { kind: 'upstream_unavailable', detail: 'HTTP 503', cause: 'HTTP 503' },
+            });
             expect(server.requests).toHaveLength(1);
         });
 
@@ -112,6 +135,9 @@ describe('createNbgClient', () => {
             const result = await client({ retry: false, timeoutMs: 100 }).fetchDay(date('2026-10-07'), 'en');
             expect(Date.now() - started).toBeLessThan(1000);
             expect(result.ok === false && result.error.kind).toBe('upstream_unavailable');
+            expect(result.ok === false && result.error.kind === 'upstream_unavailable' && result.error.cause).toBe(
+                'timeout',
+            );
             expect(server.requests).toHaveLength(1);
         });
 
@@ -122,20 +148,38 @@ describe('createNbgClient', () => {
             if (!result.ok) {
                 expect(result.error.kind).toBe('upstream_unavailable');
                 expect(result.error.kind === 'upstream_unavailable' && result.error.detail).toContain('text/html');
+                expect(result.error.kind === 'upstream_unavailable' && result.error.cause).toBe(
+                    'content-type text/html',
+                );
             }
             expect(server.requests).toHaveLength(1);
+        });
+
+        it("keeps a block page's body out of the cause", async () => {
+            const echo = `<html><body>The requested URL ${server.baseUrl}/en/json?date=2026-10-07 was rejected.</body></html>`;
+            server.setResponder(() => ({ status: 200, body: echo, contentType: 'text/html' }));
+            const result = await client().fetchDay(date('2026-10-07'), 'en');
+            expect(result.ok === false && result.error.kind === 'upstream_unavailable' && result.error.cause).toBe(
+                'content-type text/html',
+            );
         });
 
         it('reports a JSON content type with an unparseable body as upstream_unavailable', async () => {
             server.setResponder(() => ({ status: 200, body: '[{"date":' }));
             const result = await client().fetchDay(date('2026-10-07'), 'en');
             expect(result.ok === false && result.error.kind).toBe('upstream_unavailable');
+            expect(result.ok === false && result.error.kind === 'upstream_unavailable' && result.error.cause).toBe(
+                'invalid JSON',
+            );
         });
 
         it('reports parsed JSON that fails the schema as upstream_shape_changed', async () => {
             server.setResponder(() => ({ status: 200, body: '[{"date":"2026-10-07T00:00:00.000Z","items":[]}]' }));
             const result = await client().fetchDay(date('2026-10-07'), 'en');
             expect(result.ok === false && result.error.kind).toBe('upstream_shape_changed');
+            expect(result.ok === false && result.error.kind === 'upstream_shape_changed' && result.error.cause).toBe(
+                'shape json',
+            );
         });
 
         it('reports a connection failure as upstream_unavailable', async () => {
@@ -144,6 +188,10 @@ describe('createNbgClient', () => {
             expect(result.ok).toBe(false);
             if (!result.ok) {
                 expect(result.error.kind).toBe('upstream_unavailable');
+                // fetch refuses port 1 as a bad port before connecting.
+                expect(result.error.kind === 'upstream_unavailable' && result.error.cause).toBe(
+                    'network bad port after retry',
+                );
             }
         });
 
@@ -174,7 +222,9 @@ describe('createNbgClient', () => {
                 fetchImpl: brokenBody,
                 log: (line) => lines.push(line),
             }).fetchDay(date('2026-10-07'), 'en');
-            expect(result.ok).toBe(false);
+            expect(result.ok === false && result.error.kind === 'upstream_unavailable' && result.error.cause).toBe(
+                'network after retry',
+            );
             expect(lines).toHaveLength(2);
             for (const line of lines) {
                 expect(line).toMatch(/GET .*date=2026-10-07 -> 200, then TypeError: terminated in \d+ms/);
@@ -217,12 +267,44 @@ describe('createNbgClient', () => {
             server.setResponder(() => ({ status: 200, body: BLOCK_PAGE, contentType: 'text/html' }));
             const result = await client().fetchRange([code('USD')], date('2026-10-01'), date('2026-10-07'));
             expect(result.ok === false && result.error.kind).toBe('upstream_unavailable');
+            expect(result.ok === false && result.error.kind === 'upstream_unavailable' && result.error.cause).toBe(
+                'content-type text/html',
+            );
         });
 
         it('reports a CSV with a changed header as upstream_shape_changed', async () => {
             server.setResponder(() => ({ status: 200, body: 'Code;Rate\n', contentType: 'application/csv' }));
             const result = await client().fetchRange([code('USD')], date('2026-10-01'), date('2026-10-07'));
             expect(result.ok === false && result.error.kind).toBe('upstream_shape_changed');
+            expect(result.ok === false && result.error.kind === 'upstream_shape_changed' && result.error.cause).toBe(
+                'shape csv header',
+            );
+        });
+
+        it("keeps the request URL out of a network failure's cause", async () => {
+            const asked: string[] = [];
+            const echoesUrl: typeof fetch = (input) => {
+                const url = input instanceof Request ? input.url : String(input);
+                asked.push(url);
+                return Promise.reject(
+                    new TypeError(`fetch failed for ${url}`, { cause: new Error(`connect failed for ${url}`) }),
+                );
+            };
+            const result = await createNbgClient({
+                baseUrl: 'https://nbg.gov.ge',
+                userAgent: 'nbg-rates-mcp/test',
+                retryDelayMs: 5,
+                fetchImpl: echoesUrl,
+            }).fetchRange([code('USD')], date('2026-10-01'), date('2026-10-19'));
+            expect(asked).toHaveLength(2);
+            expect(asked[0]).toBe(
+                'https://nbg.gov.ge/gw/api/ct/monetarypolicy/currencies/export/csv?currencies=USD&start=2026-10-01&end=2026-10-19',
+            );
+            const cause = result.ok === false && result.error.kind === 'upstream_unavailable' && result.error.cause;
+            expect(cause).toBe('network after retry');
+            for (const fragment of ['2026', 'USD', 'nbg', '/']) {
+                expect(cause, fragment).not.toContain(fragment);
+            }
         });
     });
 });

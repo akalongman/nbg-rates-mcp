@@ -1,5 +1,7 @@
 export type CurrencyCode = string & { readonly __brand: 'CurrencyCode' };
 export type CalendarDate = string & { readonly __brand: 'CalendarDate' };
+/** Why NBG failed, built only by nbg-cause.ts. */
+export type NbgCause = string & { readonly __brand: 'NbgCause' };
 export type Language = 'en' | 'ka';
 
 export type Result<T, E> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: E };
@@ -30,8 +32,8 @@ export type RatesError =
           readonly latestEffectiveDate: CalendarDate | undefined;
           readonly today: CalendarDate;
       }
-    | { readonly kind: 'upstream_unavailable'; readonly detail: string }
-    | { readonly kind: 'upstream_shape_changed'; readonly detail: string };
+    | { readonly kind: 'upstream_unavailable'; readonly detail: string; readonly cause: NbgCause }
+    | { readonly kind: 'upstream_shape_changed'; readonly detail: string; readonly cause: NbgCause };
 
 export interface RateEntry {
     readonly code: CurrencyCode;

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fixturePath } from '../../test/helpers/fixtures.js';
 import { ACCEPT, firstMessage, post, toolCall } from '../../test/helpers/mcp-http.js';
 import { code, date } from '../../test/helpers/values.js';
+import { afterRetry, httpCause, NBG_CAUSE } from '../core/nbg-cause.js';
 import { err, ok, type RatesError, type RatesSnapshot, type Result } from '../core/types.js';
 import { createSnapshotCache } from './cache.js';
 import {
@@ -30,7 +31,7 @@ const SNAPSHOT: RatesSnapshot = {
 
 const service: RatesService = {
     getSnapshot: () => Promise.resolve(ok(SNAPSHOT)),
-    getHistory: () => Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'stub' })),
+    getHistory: () => Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'stub', cause: httpCause(503) })),
 };
 
 /** What a browser sends when someone types the address. */
@@ -68,8 +69,16 @@ const LISTEN = {
 };
 const LISTEN_HEADERS = { 'mcp-protocol-version': '2026-07-28', 'mcp-method': 'subscriptions/listen' };
 
-const UNAVAILABLE: NbgFailure = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
-const SHAPE_CHANGED: NbgFailure = { kind: 'upstream_shape_changed', detail: 'missing header' };
+const UNAVAILABLE: NbgFailure = {
+    kind: 'upstream_unavailable',
+    detail: 'HTTP 503 after retry',
+    cause: afterRetry(httpCause(503)),
+};
+const SHAPE_CHANGED: NbgFailure = {
+    kind: 'upstream_shape_changed',
+    detail: 'missing header',
+    cause: NBG_CAUSE.shapeCsvHeader,
+};
 
 /** The test service with getSnapshot answering the given result for every date. */
 function snapshotAnswering(result: Result<RatesSnapshot, RatesError>): RatesService {

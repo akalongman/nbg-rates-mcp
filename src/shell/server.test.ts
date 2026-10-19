@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod';
 import { code, date } from '../../test/helpers/values.js';
+import { afterRetry, httpCause, NBG_CAUSE } from '../core/nbg-cause.js';
 import { selectCurrencies } from '../core/normalize.js';
 import {
     err,
@@ -33,7 +34,7 @@ const stubService: RatesService = {
                 unknownCodes: [],
             }),
         ),
-    getHistory: () => Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'stub' })),
+    getHistory: () => Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'stub', cause: httpCause(503) })),
 };
 
 /** Three rows of the table NBG published for 2026-10-07, per unit as normalizeSnapshot returns them. */
@@ -74,7 +75,7 @@ function tableService(): { service: RatesService; requests: SnapshotRequest[] } 
             const snapshot = { ...TABLE, requestedDate, carriedOver: TABLE.effectiveDate < requestedDate };
             return Promise.resolve(ok(codes === undefined ? snapshot : selectCurrencies(snapshot, codes)));
         },
-        getHistory: () => Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'stub' })),
+        getHistory: () => Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'stub', cause: httpCause(503) })),
     };
     return { service, requests };
 }
@@ -142,8 +143,15 @@ describe('describeError', () => {
                 },
                 /^NBG has not published a rate for 2099-01-01 yet\. Today in Tbilisi is 2026-10-08; the furthest date that can have a rate is tomorrow, 2026-10-09, and only once NBG has published it\. NBG sets rates on business days around 17:00 Tbilisi time, valid from the next calendar day\. A Sunday, a Monday or the day after a public holiday gets no table of its own and carries the last one once it is today\. For a range, end it at today\.$/,
             ],
-            [{ kind: 'upstream_unavailable', detail: 'HTTP 503' }, /503.*retried/],
-            [{ kind: 'upstream_shape_changed', detail: 'currencies: expected array' }, /currencies.*issues/],
+            [{ kind: 'upstream_unavailable', detail: 'HTTP 503', cause: httpCause(503) }, /503.*retried/],
+            [
+                {
+                    kind: 'upstream_shape_changed',
+                    detail: 'currencies: expected array',
+                    cause: NBG_CAUSE.shapeJson,
+                },
+                /currencies.*issues/,
+            ],
         ];
         for (const [error, pattern] of cases) {
             expect(describeError(error)).toMatch(pattern);
@@ -493,7 +501,8 @@ describe('createServer', () => {
                         today: date('2026-10-08'),
                     }),
                 ),
-            getHistory: () => Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'stub' })),
+            getHistory: () =>
+                Promise.resolve(err({ kind: 'upstream_unavailable', detail: 'stub', cause: httpCause(503) })),
         };
         const unpublishedClient = await connectedClient({ service: unpublished });
         const tomorrow = await unpublishedClient.callTool({
@@ -788,7 +797,11 @@ describe('nbg_convert_many', () => {
 
     it('stops asking NBG after one outage and fails the later dates, keeping the ones fetched before', async () => {
         const { service: table } = tableService();
-        const outage: RatesError = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
+        const outage: RatesError = {
+            kind: 'upstream_unavailable',
+            detail: 'HTTP 503 after retry',
+            cause: afterRetry(httpCause(503)),
+        };
         const asked: Array<{ date: CalendarDate; withoutNbg: NbgFailure | undefined }> = [];
         const service: RatesService = {
             getSnapshot(args) {

@@ -2,6 +2,7 @@ import { expect } from 'vitest';
 import { addDays, NBG_ARCHIVE_START } from '../../src/core/dates.js';
 import type { MirrorState } from '../../src/core/mirror.js';
 import { tableCodes, type MirrorPublication } from '../../src/core/mirror-publication.js';
+import { afterRetry, httpCause } from '../../src/core/nbg-cause.js';
 import type { NbgCsvRow } from '../../src/core/nbg-csv.js';
 import type { NbgDay } from '../../src/core/nbg-schema.js';
 import type { SyncKind } from '../../src/core/sync-schedule.js';
@@ -33,7 +34,11 @@ export const OCTOBER: ReadonlyArray<MirrorPublication> = [
 ].map((day) => publication(tableFixture('en', day), day === '2026-10-07' ? { ka: tableFixture('ka', day) } : {}));
 /** Every recorded table quotes these codes in this order, so each CSV request names them. */
 export const CODES = tableCodes(tableFixture('en', '2026-10-07')).join(',');
-export const UNAVAILABLE: RatesError = { kind: 'upstream_unavailable', detail: 'HTTP 503 after retry' };
+export const UNAVAILABLE: RatesError = {
+    kind: 'upstream_unavailable',
+    detail: 'HTTP 503 after retry',
+    cause: afterRetry(httpCause(503)),
+};
 
 /** `base` plus `step` thousandths, to four decimals: a rate of its own for each of a run of synthetic tables. */
 export function rate(base: number, step: number): number {

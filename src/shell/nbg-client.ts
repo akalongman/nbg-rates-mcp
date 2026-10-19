@@ -1,3 +1,4 @@
+import { afterRetry, contentTypeCause, httpCause, NBG_CAUSE, requestErrorCause } from '../core/nbg-cause.js';
 import { parseNbgCsv, type NbgCsvRow } from '../core/nbg-csv.js';
 import { parseNbgResponse, type NbgDay } from '../core/nbg-schema.js';
 import {
@@ -6,6 +7,7 @@ import {
     type CalendarDate,
     type CurrencyCode,
     type Language,
+    type NbgCause,
     type RatesError,
     type Result,
 } from '../core/types.js';
@@ -34,7 +36,9 @@ export interface NbgClient {
 type ExpectedType = 'json' | 'csv';
 
 type Attempt =
-    { kind: 'ok'; text: string } | { kind: 'retryable'; detail: string } | { kind: 'fatal'; error: RatesError };
+    | { kind: 'ok'; text: string }
+    | { kind: 'retryable'; detail: string; cause: NbgCause }
+    | { kind: 'fatal'; error: RatesError };
 
 const API_PATH = '/gw/api/ct/monetarypolicy/currencies';
 
@@ -46,7 +50,11 @@ function parseJson(text: string): Result<unknown, RatesError> {
     try {
         return ok(JSON.parse(text) as unknown);
     } catch {
-        return err({ kind: 'upstream_unavailable', detail: `response is not valid JSON: ${text.slice(0, 80)}` });
+        return err({
+            kind: 'upstream_unavailable',
+            detail: `response is not valid JSON: ${text.slice(0, 80)}`,
+            cause: NBG_CAUSE.invalidJson,
+        });
     }
 }
 
@@ -73,11 +81,18 @@ export function createNbgClient(options: NbgClientOptions): NbgClient {
             summary = String(response.status);
             if (response.status === 429 || response.status >= 500) {
                 await response.body?.cancel();
-                return { kind: 'retryable', detail: `HTTP ${response.status}` };
+                return { kind: 'retryable', detail: `HTTP ${response.status}`, cause: httpCause(response.status) };
             }
             if (!response.ok) {
                 await response.body?.cancel();
-                return { kind: 'fatal', error: { kind: 'upstream_unavailable', detail: `HTTP ${response.status}` } };
+                return {
+                    kind: 'fatal',
+                    error: {
+                        kind: 'upstream_unavailable',
+                        detail: `HTTP ${response.status}`,
+                        cause: httpCause(response.status),
+                    },
+                };
             }
             const contentType = response.headers.get('content-type') ?? '';
             const text = await response.text();
@@ -88,6 +103,7 @@ export function createNbgClient(options: NbgClientOptions): NbgClient {
                     error: {
                         kind: 'upstream_unavailable',
                         detail: `unexpected ${contentType || 'untyped'} response: ${text.slice(0, 80)}`,
+                        cause: contentTypeCause(contentType),
                     },
                 };
             }
@@ -95,7 +111,7 @@ export function createNbgClient(options: NbgClientOptions): NbgClient {
         } catch (error: unknown) {
             const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
             summary = summary === undefined ? detail : `${summary}, then ${detail}`;
-            return { kind: 'retryable', detail };
+            return { kind: 'retryable', detail, cause: requestErrorCause(error) };
         } finally {
             log(`GET ${url} -> ${summary ?? 'no response'} in ${Date.now() - started}ms`);
         }
@@ -104,14 +120,18 @@ export function createNbgClient(options: NbgClientOptions): NbgClient {
     async function fetchText(url: string, expected: ExpectedType): Promise<Result<string, RatesError>> {
         let outcome = await attempt(url, expected);
         if (outcome.kind === 'retryable' && !retry) {
-            return err({ kind: 'upstream_unavailable', detail: outcome.detail });
+            return err({ kind: 'upstream_unavailable', detail: outcome.detail, cause: outcome.cause });
         }
         if (outcome.kind === 'retryable') {
             await sleep(retryDelayMs);
             outcome = await attempt(url, expected);
         }
         if (outcome.kind === 'retryable') {
-            return err({ kind: 'upstream_unavailable', detail: `${outcome.detail} after retry` });
+            return err({
+                kind: 'upstream_unavailable',
+                detail: `${outcome.detail} after retry`,
+                cause: afterRetry(outcome.cause),
+            });
         }
         if (outcome.kind === 'fatal') {
             return err(outcome.error);
