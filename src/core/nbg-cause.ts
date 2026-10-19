@@ -3,8 +3,9 @@ import type { NbgCause } from './types.js';
 /**
  * The cause of an NBG failure, made to be logged. A cause is one fixed category and at most one value, and a value is
  * used only when it passes its rule below; one that fails is dropped, never cleaned. So a cause carries nothing from
- * the user's request, the request URL or NBG's response body: an error code or message is kept only when its pattern
- * cannot hold them, and the status and the media type come from NBG's status line and header, never from its body.
+ * the user's request, the request URL or NBG's response body: an error code or message comes from the fetch library's
+ * error, never from the body, and is kept only when its pattern excludes a URL, a date, a number and an upper-case
+ * currency code; the status and the media type come from NBG's status line and header, never from its body.
  */
 
 /** Four or more upper-case letters, digits and underscores, so never a three-letter currency code. */
