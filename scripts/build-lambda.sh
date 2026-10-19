@@ -23,6 +23,11 @@ cp "$lock" "$work/package/package-lock.json"
 (
     cd "$work/package"
     npm ci --omit=dev --ignore-scripts --no-audit --no-fund > /dev/null
+    # npm 10 leaves an empty scope directory for each omitted scoped package
+    # (node_modules/@aws-sdk/); npm 11 does not. A package tarball cannot hold
+    # an empty directory, so every empty one here is npm's: dropping them makes
+    # the zip the same whichever npm built it.
+    find node_modules -type d -empty -delete
     rm -f "$target"
     zip -X -r -q "$target" dist node_modules package.json
 )
