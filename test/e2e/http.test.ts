@@ -214,7 +214,12 @@ describe('nbg-rates-mcp over Streamable HTTP', () => {
         const lines = child.stdout.slice(before).map((line) => JSON.parse(line) as Record<string, unknown>);
         const calls = lines.filter((line) => line['method'] === 'tools/call');
         expect(calls).toHaveLength(1);
-        expect(calls[0]).toMatchObject({ tool: 'nbg_convert', outcome: 'ok', nbgError: 'upstream_unavailable' });
+        expect(calls[0]).toMatchObject({
+            tool: 'nbg_convert',
+            outcome: 'ok',
+            nbgError: 'upstream_unavailable',
+            nbgCause: 'HTTP 503 after retry',
+        });
     });
 
     it('answers GET / with the version and refuses a foreign host', async () => {

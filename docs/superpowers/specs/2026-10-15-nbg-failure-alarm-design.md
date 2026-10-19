@@ -108,6 +108,11 @@ readonly nbgError: 'upstream_unavailable' | 'upstream_shape_changed' | null;
   an invalid-params error is `outcome: "error"` with `nbgError: null`.
   The saved Logs Insights queries that read `outcome` keep working.
 - A request that meets both kinds records the first one it met.
+- The line also names the cause of that same failure in `nbgCause`,
+  right after `nbgError` (for example `HTTP 503 after retry`), and null
+  when `nbgError` is null. A cause is built from a fixed vocabulary and
+  carries nothing from the request, its URL or NBG's response body; see
+  `2026-10-19-nbg-failure-cause-design.md`.
 - Only `/mcp` requests have a log line; site paths are unchanged.
 
 ### Where the failure is recorded

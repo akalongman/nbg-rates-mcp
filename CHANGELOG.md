@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows Keep
 
 Added: the hosted endpoint can answer from a mirror of NBG's data in DynamoDB, named by `NBG_RATES_MIRROR_TABLE`. A scheduled sync in the same function keeps the recent tables and the whole archive's CSV rows equal to NBG (hourly, and every minute from 17:00 to 17:30 on weekdays, stopping sooner once the next day's table settles), and the first request for a past date keeps a copy of that date's table once it matches the rows. When the mirror is out of date or lacks a date, requests ask NBG as before, and during an NBG outage a request gets the mirror's rate or series when it holds one. Without the variable nothing changes, and local installs never use it.
 
+Changed: a hosted request's log line names the cause of the NBG failure it met (`nbgCause`, for example `HTTP 503 after retry` or `network UND_ERR_SOCKET after retry`, else null), and a sync run's line names the cause of the NBG failure that failed it (`syncCause`). A cause is built from a fixed vocabulary and never carries a date, a currency, a URL or text from NBG's response.
+
 Changed: the privacy text says that the hosted endpoint keeps a copy of NBG's table for a past date the first time anyone asks, without noting who asked or when.
 
 ## 0.6.4 - 2026-10-16

@@ -1,6 +1,6 @@
 import { claimRun, type MirrorState } from '../core/mirror.js';
 import { isWindowMinute, MAX_EVENT_AGE_MS, type SyncKind } from '../core/sync-schedule.js';
-import type { Result } from '../core/types.js';
+import type { NbgCause, Result } from '../core/types.js';
 import { STORE_OPERATION_TIMEOUT_MS, type MirrorStore } from './mirror-store.js';
 import type { NbgClient } from './nbg-client.js';
 import { runArchiveFill, runDailyRefetch, runRecheckSlice, type StepOutcome } from './sync-archive.js';
@@ -19,6 +19,8 @@ export interface SyncLogLine {
     readonly syncResult: 'ok' | 'skipped' | 'failed';
     /** The failure kind, the skip reason, 'deadline', or null. */
     readonly syncDetail: string | null;
+    /** The cause of the NBG failure that failed the run (nbg-cause.ts), else null. */
+    readonly syncCause: string | null;
     /** True when this run recorded a fresh-until time, or found a later one a newer run had recorded. */
     readonly checked: boolean;
     readonly committed: number;
@@ -41,15 +43,19 @@ export interface SyncDeps {
 interface RunOutcome {
     readonly result: SyncLogLine['syncResult'];
     readonly detail: string | null;
+    readonly cause: NbgCause | null;
     readonly checked: boolean;
 }
 
 function skipped(reason: 'late' | 'early' | 'outside_window' | 'window_stopped' | 'duplicate'): RunOutcome {
-    return { result: 'skipped', detail: reason, checked: false };
+    return { result: 'skipped', detail: reason, cause: null, checked: false };
 }
 
-function failed(kind: string): RunOutcome {
-    return { result: 'failed', detail: kind, checked: false };
+/** A run that failed: the failure's kind, and its cause when NBG failed (a store failure or empty export has none). */
+function failed(failure: SyncFailure): RunOutcome {
+    const cause =
+        failure.kind === 'upstream_unavailable' || failure.kind === 'upstream_shape_changed' ? failure.cause : null;
+    return { result: 'failed', detail: failure.kind, cause, checked: false };
 }
 
 /** toISOString throws a RangeError on an invalid Date, which a malformed event can carry. */
@@ -69,6 +75,7 @@ export function notConfiguredLine(event: SyncEvent, now: Date): SyncLogLine {
         scheduledTime: printed(event.scheduledTime),
         syncResult: 'failed',
         syncDetail: 'mirror_not_configured',
+        syncCause: null,
         checked: false,
         committed: 0,
         nbgRequests: 0,
@@ -145,7 +152,7 @@ const STEPS: Readonly<Record<SyncKind, ReadonlyArray<Step>>> = {
 async function runKind(kind: SyncKind, context: SyncContext, state: MirrorState): Promise<RunOutcome> {
     const check = await CHECKS[kind](context, state);
     if (!check.ok) {
-        return failed(check.error.kind);
+        return failed(check.error);
     }
     const { checked, deadline, retryFailure } = check.value;
     const failures: SyncFailure[] = retryFailure === undefined ? [] : [retryFailure];
@@ -163,9 +170,9 @@ async function runKind(kind: SyncKind, context: SyncContext, state: MirrorState)
     }
     const [failure] = failures;
     if (failure !== undefined) {
-        return { result: 'failed', detail: failure.kind, checked };
+        return { ...failed(failure), checked };
     }
-    return { result: 'ok', detail: stopped ? 'deadline' : null, checked };
+    return { result: 'ok', detail: stopped ? 'deadline' : null, cause: null, checked };
 }
 
 /**
@@ -189,6 +196,7 @@ export async function runSync(event: SyncEvent, remainingMs: () => number, deps:
             scheduledTime: printed(event.scheduledTime),
             syncResult: outcome.result,
             syncDetail: outcome.detail,
+            syncCause: outcome.cause,
             checked: outcome.checked,
             committed: context?.counts.committed ?? 0,
             nbgRequests: context?.counts.nbgRequests ?? 0,
@@ -224,13 +232,13 @@ export async function runSync(event: SyncEvent, remainingMs: () => number, deps:
     });
     const read = await store.readState(context.signal());
     if (!read.ok) {
-        return finish(failed(read.error.kind), context);
+        return finish(failed(read.error), context);
     }
     if (event.kind === 'window' && stoppedWindowDate(read.value) === context.today) {
         return finish(skipped('window_stopped'), context);
     }
     if (!context.allows(STORE_OPERATION_TIMEOUT_MS)) {
-        return finish({ result: 'ok', detail: 'deadline', checked: false }, context);
+        return finish({ result: 'ok', detail: 'deadline', cause: null, checked: false }, context);
     }
     const scheduledAt = event.scheduledTime.getTime();
     const claim = await store.updateState((state) => {
@@ -238,7 +246,7 @@ export async function runSync(event: SyncEvent, remainingMs: () => number, deps:
         return { next: claimed, outcome: claimed };
     }, context.signal());
     if (!claim.ok) {
-        return finish(failed(claim.error.kind), context);
+        return finish(failed(claim.error), context);
     }
     if (claim.value === undefined) {
         return finish(skipped('duplicate'), context);

@@ -1196,6 +1196,7 @@ describe("runSync: the hourly kind's steps", () => {
                 scheduledTime: '2026-10-08T07:00:00.000Z',
                 syncResult: 'failed',
                 syncDetail: 'upstream_unavailable',
+                syncCause: 'HTTP 503 after retry',
                 checked: true,
                 nbgRequests: 12,
                 span: '2026-10-01..2026-10-09',

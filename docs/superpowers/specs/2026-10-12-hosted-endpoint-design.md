@@ -153,6 +153,7 @@ export interface RequestLogLine {
     readonly status: number;
     readonly outcome: 'ok' | 'error';
     readonly nbgError: 'upstream_unavailable' | 'upstream_shape_changed' | null; // The NBG failure a lookup in this request ended in, else null
+    readonly nbgCause: string | null; // The cause of that same failure, else null (see 2026-10-19-nbg-failure-cause-design.md)
     readonly durationMs: number;
 }
 

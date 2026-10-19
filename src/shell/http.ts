@@ -28,6 +28,8 @@ export interface RequestLogLine {
     readonly outcome: 'ok' | 'error';
     /** The NBG failure a lookup in this request ended in, else null. */
     readonly nbgError: NbgFailureKind | null;
+    /** The cause of that same failure (nbg-cause.ts), else null. */
+    readonly nbgCause: string | null;
     readonly durationMs: number;
 }
 
@@ -214,6 +216,7 @@ export function createHttpHandler(
             status: response.status,
             outcome,
             nbgError: scope.failure?.kind ?? null,
+            nbgCause: scope.failure?.cause ?? null,
             durationMs: Math.round(performance.now() - started),
         };
         try {

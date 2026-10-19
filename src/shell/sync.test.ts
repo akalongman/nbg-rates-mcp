@@ -116,6 +116,7 @@ describe('runSync: which events run', () => {
         const result = await harness.run('2026-10-08T10:00');
         expect(result.syncResult).toBe('failed');
         expect(result.syncDetail).toBe('store_failed');
+        expect(result.syncCause).toBeNull();
         expect(harness.fake.requests).toEqual([]);
     });
 });
@@ -346,6 +347,7 @@ describe('runSync: the hourly check', () => {
                 scheduledTime: '2026-10-08T07:00:00.000Z',
                 syncResult: 'failed',
                 syncDetail: 'empty_export',
+                syncCause: null,
                 nbgRequests: 1,
                 span: '2026-10-01..2026-10-09',
             }),
@@ -362,6 +364,7 @@ describe('runSync: the hourly check', () => {
         expect(result).toMatchObject({
             syncResult: 'failed',
             syncDetail: 'upstream_unavailable',
+            syncCause: 'HTTP 503 after retry',
             checked: false,
             nbgRequests: 1,
         });
@@ -377,7 +380,12 @@ describe('runSync: the hourly check', () => {
             cause: NBG_CAUSE.shapeJson,
         });
         const result = await harness.run('2026-10-08T10:00');
-        expect(result).toMatchObject({ syncResult: 'failed', syncDetail: 'upstream_shape_changed', span: null });
+        expect(result).toMatchObject({
+            syncResult: 'failed',
+            syncDetail: 'upstream_shape_changed',
+            syncCause: 'shape json',
+            span: null,
+        });
         expect(harness.fake.requests).toEqual(['day:en:2026-10-08']);
         expect((await harness.state()).span).toBeUndefined();
     });
@@ -676,6 +684,7 @@ describe('runSync: unresolved dates outside the check', () => {
         expect(result).toMatchObject({
             syncResult: 'failed',
             syncDetail: 'upstream_unavailable',
+            syncCause: 'HTTP 503 after retry',
             checked: true,
             committed: 0,
             nbgRequests: 2,
@@ -752,6 +761,7 @@ describe('runSync: the log line', () => {
                 scheduledTime: '2026-10-08T06:00:00.000Z',
                 syncResult: 'failed',
                 syncDetail: 'upstream_unavailable',
+                syncCause: 'HTTP 503 after retry',
                 nbgRequests: 1,
                 span: null,
                 rowsStart: null,

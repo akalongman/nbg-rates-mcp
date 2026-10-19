@@ -241,6 +241,7 @@ describe('createHttpHandler', () => {
             client: null,
             outcome: 'ok',
             nbgError: null,
+            nbgCause: null,
         });
         const serialized = JSON.stringify(lines[0]);
         expect(serialized).not.toContain('123456');
@@ -251,6 +252,7 @@ describe('createHttpHandler', () => {
                 'client',
                 'durationMs',
                 'method',
+                'nbgCause',
                 'nbgError',
                 'outcome',
                 'protocolVersion',
@@ -350,6 +352,7 @@ describe('createHttpHandler', () => {
                 status: 500,
                 outcome: 'error',
                 nbgError: null,
+                nbgCause: null,
             });
             expect(consoleError).toHaveBeenCalledWith('RangeError http handler failed');
             expect(JSON.stringify(consoleError.mock.calls)).not.toContain('123456');
@@ -385,7 +388,12 @@ describe('createHttpHandler nbgError', () => {
         const response = await handler(post(toolCall(tool, args)));
         expect(await firstMessage(response)).toMatchObject({ result: { isError: true } });
         expect(lines).toHaveLength(1);
-        expect(lines[0]).toMatchObject({ tool, outcome: 'ok', nbgError: 'upstream_unavailable' });
+        expect(lines[0]).toMatchObject({
+            tool,
+            outcome: 'ok',
+            nbgError: 'upstream_unavailable',
+            nbgCause: 'HTTP 503 after retry',
+        });
     });
 
     it('logs a history that NBG answered in a changed shape', async () => {
@@ -396,11 +404,23 @@ describe('createHttpHandler nbgError', () => {
             post(toolCall('nbg_rate_history', { currency: 'USD', from: '2026-10-01', to: '2026-10-07' })),
         );
         expect(await firstMessage(response)).toMatchObject({ result: { isError: true } });
-        expect(lines[0]).toMatchObject({ tool: 'nbg_rate_history', outcome: 'ok', nbgError: 'upstream_shape_changed' });
+        expect(lines[0]).toMatchObject({
+            tool: 'nbg_rate_history',
+            outcome: 'ok',
+            nbgError: 'upstream_shape_changed',
+            nbgCause: 'shape csv header',
+        });
     });
 
     it('logs an outage that nbg_convert_many reports item by item', async () => {
-        const { handler, lines } = handlerWith({ service: snapshotAnswering(err(UNAVAILABLE)) });
+        const { handler, lines } = handlerWith({
+            service: {
+                ...service,
+                // Two failures in one request, the outage first: the line names the first one, its kind and its cause.
+                getSnapshot: ({ date: requested }) =>
+                    Promise.resolve(err(requested === date('2026-10-06') ? UNAVAILABLE : SHAPE_CHANGED)),
+            },
+        });
         const items = [
             { amount: 100, from: 'USD', to: 'GEL', date: '2026-10-06' },
             { amount: 200, from: 'USD', to: 'GEL', date: '2026-10-07' },
@@ -409,7 +429,12 @@ describe('createHttpHandler nbgError', () => {
         const message = await firstMessage(response);
         expect(message).toMatchObject({ result: { structuredContent: { converted: 0, skipped: 2 } } });
         expect(message).not.toHaveProperty(['result', 'isError'], true);
-        expect(lines[0]).toMatchObject({ tool: 'nbg_convert_many', outcome: 'ok', nbgError: 'upstream_unavailable' });
+        expect(lines[0]).toMatchObject({
+            tool: 'nbg_convert_many',
+            outcome: 'ok',
+            nbgError: 'upstream_unavailable',
+            nbgCause: 'HTTP 503 after retry',
+        });
     });
 
     it('logs an NBG failure behind the rates resource', async () => {
@@ -423,6 +448,7 @@ describe('createHttpHandler nbgError', () => {
             tool: null,
             outcome: 'error',
             nbgError: 'upstream_unavailable',
+            nbgCause: 'HTTP 503 after retry',
         });
     });
 
@@ -450,7 +476,11 @@ describe('createHttpHandler nbgError', () => {
         const malformed = await handler(post(toolCall('nbg_convert', { amount: 1, from: 'dollar', to: 'GEL' })));
         expect(await firstMessage(malformed)).toMatchObject({ result: { isError: true } });
 
-        expect([...notPublished.lines, ...lines].map((line) => line.nbgError)).toEqual([null, null, null]);
+        expect([...notPublished.lines, ...lines].map(({ nbgError, nbgCause }) => ({ nbgError, nbgCause }))).toEqual([
+            { nbgError: null, nbgCause: null },
+            { nbgError: null, nbgCause: null },
+            { nbgError: null, nbgCause: null },
+        ]);
     });
 
     it('marks only the request whose lookup failed when two run at once', async () => {
@@ -476,8 +506,11 @@ describe('createHttpHandler nbgError', () => {
             handler(post(toolCall('nbg_get_rates', { date: '2026-10-07', currencies: ['USD'] }))),
         ]);
         expect(lines).toHaveLength(2);
-        expect(lines.find((line) => line.tool === 'nbg_convert')).toMatchObject({ nbgError: 'upstream_unavailable' });
-        expect(lines.find((line) => line.tool === 'nbg_get_rates')).toMatchObject({ nbgError: null });
+        expect(lines.find((line) => line.tool === 'nbg_convert')).toMatchObject({
+            nbgError: 'upstream_unavailable',
+            nbgCause: 'HTTP 503 after retry',
+        });
+        expect(lines.find((line) => line.tool === 'nbg_get_rates')).toMatchObject({ nbgError: null, nbgCause: null });
     });
 
     it('logs a failure that a service sharing the lookup scopes recorded itself, though it answered', async () => {
@@ -495,7 +528,12 @@ describe('createHttpHandler nbgError', () => {
         );
         expect(await firstMessage(response)).toMatchObject({ result: { structuredContent: { resultRounded: 26.03 } } });
         expect(lines).toHaveLength(1);
-        expect(lines[0]).toMatchObject({ tool: 'nbg_convert', outcome: 'ok', nbgError: 'upstream_unavailable' });
+        expect(lines[0]).toMatchObject({
+            tool: 'nbg_convert',
+            outcome: 'ok',
+            nbgError: 'upstream_unavailable',
+            nbgCause: 'HTTP 503 after retry',
+        });
     });
 
     it('does not count a lookup whose retry succeeded', async () => {
@@ -516,7 +554,7 @@ describe('createHttpHandler nbgError', () => {
             post(toolCall('nbg_convert', { amount: 10, from: 'USD', to: 'GEL', date: '2026-10-07' })),
         );
         expect(await firstMessage(response)).toMatchObject({ result: { structuredContent: { resultRounded: 26.03 } } });
-        expect(lines[0]).toMatchObject({ tool: 'nbg_convert', outcome: 'ok', nbgError: null });
+        expect(lines[0]).toMatchObject({ tool: 'nbg_convert', outcome: 'ok', nbgError: null, nbgCause: null });
         expect(fetchImpl).toHaveBeenCalledTimes(2);
     });
 });

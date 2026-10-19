@@ -484,12 +484,13 @@ that bound on 2026-10-17.
   The archive rows' one-off fill comes on top. A past-table write adds no
   request: it stores what the request's own live lookup fetched.
 - Writes one log line per run: the kind of run, its outcome, the NBG
-  failure kind if any, publications committed, the complete span and the
-  archive rows' start (`rowsStart`), so the line shows how far back the
-  archive rows reach, hour by hour. No user data exists in the sync to
-  log. The line uses its own field names, not `nbgError`, so the existing
-  NbgFailures metric filter never counts a failed sync (the builder's
-  question 6).
+  failure kind if any and that failure's cause (`syncCause`, see
+  `2026-10-19-nbg-failure-cause-design.md`), publications committed, the
+  complete span and the archive rows' start (`rowsStart`), so the line
+  shows how far back the archive rows reach, hour by hour. No user data
+  exists in the sync to log. The line uses its own field names, not
+  `nbgError`, so the existing NbgFailures metric filter never counts a
+  failed sync (the builder's question 6).
 
 ### Where the code runs
 

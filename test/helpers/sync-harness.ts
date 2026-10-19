@@ -286,6 +286,7 @@ export function line(fields: Partial<SyncLogLine> & Pick<SyncLogLine, 'time' | '
         syncRun: 'hourly',
         syncResult: 'ok',
         syncDetail: null,
+        syncCause: null,
         checked: false,
         committed: 0,
         nbgRequests: 0,
