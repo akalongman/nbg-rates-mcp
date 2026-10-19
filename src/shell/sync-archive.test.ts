@@ -1250,6 +1250,7 @@ describe("runSync: the hourly kind's steps", () => {
         expect(await harness.run('2026-10-08T11:00', { client })).toMatchObject({
             syncResult: 'failed',
             syncDetail: 'upstream_unavailable',
+            syncCause: 'HTTP 503 after retry',
             checked: true,
         });
         expect((await harness.state()).refetch).toEqual({ cursor: '2026-10-06' });

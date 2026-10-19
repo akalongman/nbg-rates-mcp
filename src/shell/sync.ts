@@ -53,9 +53,18 @@ function skipped(reason: 'late' | 'early' | 'outside_window' | 'window_stopped' 
 
 /** A run that failed: the failure's kind, and its cause when NBG failed (a store failure or empty export has none). */
 function failed(failure: SyncFailure): RunOutcome {
-    const cause =
-        failure.kind === 'upstream_unavailable' || failure.kind === 'upstream_shape_changed' ? failure.cause : null;
-    return { result: 'failed', detail: failure.kind, cause, checked: false };
+    switch (failure.kind) {
+        case 'upstream_unavailable':
+        case 'upstream_shape_changed':
+            return { result: 'failed', detail: failure.kind, cause: failure.cause, checked: false };
+        case 'store_failed':
+        case 'empty_export':
+            return { result: 'failed', detail: failure.kind, cause: null, checked: false };
+        default: {
+            const exhaustive: never = failure;
+            return exhaustive;
+        }
+    }
 }
 
 /** toISOString throws a RangeError on an invalid Date, which a malformed event can carry. */

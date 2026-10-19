@@ -137,7 +137,7 @@ call, from the builder check):
 - An error code is four or more upper-case letters, digits and
   underscores, so it cannot be a three-letter ISO currency code.
 - A cause message is lower-case letters and spaces only, so it cannot
-  hold a URL, a date, a number or a currency code.
+  hold a URL, a date, a number or an upper-case currency code.
 - A media type is checked against its own grammar.
 
 Anything that fails a rule is dropped, not cleaned.

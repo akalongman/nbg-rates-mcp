@@ -693,7 +693,12 @@ describe('createMirroredRatesService behind createHttpHandler', () => {
         );
         expect(await firstMessage(response)).toMatchObject({ result: { structuredContent: { resultRounded: 26.03 } } });
         expect(lines).toHaveLength(1);
-        expect(lines[0]).toMatchObject({ tool: 'nbg_convert', outcome: 'ok', nbgError: 'upstream_unavailable' });
+        expect(lines[0]).toMatchObject({
+            tool: 'nbg_convert',
+            outcome: 'ok',
+            nbgError: 'upstream_unavailable',
+            nbgCause: 'HTTP 503 after retry',
+        });
     });
 
     it('converts 100 items over 30 stale dates with one short attempt on a hanging NBG', async () => {
@@ -728,7 +733,11 @@ describe('createMirroredRatesService behind createHttpHandler', () => {
             expect(performance.now() - started).toBeLessThan(10_000);
             expect(server.requests).toHaveLength(1);
             expect(fixture.fake.requests).toEqual([]);
-            expect(lines[0]).toMatchObject({ tool: 'nbg_convert_many', nbgError: 'upstream_unavailable' });
+            expect(lines[0]).toMatchObject({
+                tool: 'nbg_convert_many',
+                nbgError: 'upstream_unavailable',
+                nbgCause: 'timeout',
+            });
         } finally {
             await server.close();
         }
