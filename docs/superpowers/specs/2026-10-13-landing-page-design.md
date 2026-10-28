@@ -416,7 +416,7 @@ infrastructure step starts by coordinating with it.
    topic in `billing.tf`, with missing data treated as not breaching:
    - the API's `5xx` metric for the `$default` stage, any in five
      minutes (this would have caught the TRACK crash of 0.5.0, and also
-     catches the function's own throttle, which reaches callers as 500);
+     catches the function's own throttle, which reaches callers as 503);
    - requests the stage refused with 429, any in five minutes, counted by
      a metric filter on the access log group (`$.status = "429"`), since
      HTTP APIs publish no separate 429 metric;

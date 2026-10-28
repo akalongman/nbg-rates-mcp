@@ -431,7 +431,7 @@ are `nbg-rates-mcp` unless AWS forces otherwise.
   off the function's reserved concurrency of 10, but requests slower
   than a second, such as tool calls during an NBG outage at about 21
   seconds each, can still occupy all 10 instances, and the function's
-  own throttle then reaches callers as a 500), and access logging to the
+  own throttle then reaches callers as a 503), and access logging to the
   30 day log group `/aws/apigateway/nbg-rates-mcp` with the fields `requestId`, `ip`,
   `requestTime`, `httpMethod`, `path`, `status`, `integrationLatency`
   and `userAgent`. `aws_lambda_permission` lets the API invoke the alias
@@ -743,11 +743,11 @@ URL answers 503 from the placeholder.
   with a tool result that carries `isError` and the error text, as the
   stdio server would. Each such call holds an instance for those 21
   seconds, so more than about one call every two seconds fills the
-  reserved concurrency and the rest are answered 500 (see "A flood").
+  reserved concurrency and the rest are answered 503 (see "A flood").
 - **A flood**: throttling answers 429 at the gateway above 10 requests a
   second; reserved concurrency caps the function at 10 parallel
   instances, and requests beyond those while all 10 are busy are
-  answered 500 by the gateway (the function's own throttle); the budget
+  answered 503 by the gateway (the function's own throttle); the budget
   mails at 5 USD. The URL may be slow or refuse during a flood, and
   nothing else in the account is affected.
 - **A batch of many uncached dates**: `nbg_convert_many` fetches dates one
