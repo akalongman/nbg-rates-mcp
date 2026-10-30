@@ -87,9 +87,9 @@ every minute from 17:00.
   cannot vouch for, so she gets today's "NBG is not answering" error.
   Once NBG recovers at 11:10, requests get NBG's answers live until the
   12:00 run makes the mirror fresh again. The owner gets an ALARM email
-  from the sync alarm, another from the NBG-failure alarm once a hosted
-  lookup has failed live, and an OK email from each once a five-minute
-  period passes without a failure.
+  from the NBG-failure alarm once a hosted lookup has failed live, and an
+  OK email once it clears. The sync alarm stays quiet: only the 11:00
+  hourly run failed, and it mails on two failed hourly runs in a row.
 
 ## Goals
 
@@ -539,23 +539,32 @@ the same style, each with `alarm_actions` and `ok_actions` on
 `aws_sns_topic.notify_me`:
 
 - Sync failed: a metric filter on the function log counting sync lines
-  whose outcome is an error, alarm on Sum over 3600 second periods >= 1 in
-  2 of 2 periods, missing data not breaching. It reports the failures the
-  code sees once they repeat: sync runs are scheduled, so a real break
-  fails a run every hour, while one NBG blip fails runs within a single
-  hour and stays quiet (changed on 2026-10-20 from 300 seconds >= 1, after
-  a three-minute NBG blip on 2026-10-19 at 17:09 would have mailed; five
-  minute periods could never see two in a row outside the window, where
-  runs are an hour apart).
+  whose run is an hourly run and whose outcome is an error, alarm on
+  `FILL(m, 0)` of its Sum over 3600 second periods >= 1 in 2 of 2
+  periods. It reports the failures the code sees once they repeat: sync
+  runs are scheduled, so a real break fails every hourly run, while one
+  NBG blip fails one at most and stays quiet (changed on 2026-10-20 from
+  300 seconds >= 1, after a three-minute NBG blip on 2026-10-19 at 17:09
+  would have mailed; five minute periods could never see two in a row,
+  since hourly runs are an hour apart). Changed again on 2026-10-30, after
+  three window runs failed at 17:04 to 17:06 and mailed: CloudWatch, not
+  Terraform, places an alarm's hour boundaries (at five past that day), so
+  window runs can fall on both sides of one, while there is one hourly run
+  per hour wherever the boundary falls; window runs are left to the next
+  alarm. `FILL` makes an hour without a failed run a zero rather than
+  missing data, so OK comes with the first such hour; with missing data
+  CloudWatch looked back up to four hours and the OK came three hours
+  after the last failure.
 - Sync window failed (added 2026-10-20): a metric filter counting sync
   lines whose run is a window run and whose outcome is an error, alarm on
-  Sum over 3600 seconds >= 10, missing data not breaching. The window's
-  runs all fall in the 17:00 hour, so a fault only they meet never fails
-  two hours in a row, and the hourly checks keep the mirror-stale alarm
-  quiet: without it, the fast pickup of a new table could stay broken
+  `FILL(m, 0)` of its Sum over 3600 seconds >= 10 (`FILL` since
+  2026-10-31, as for sync failed, so OK comes with the next hour). Sync
+  failed counts hourly runs only, so a fault only the window's runs meet
+  never reaches it, and the hourly checks keep the mirror-stale alarm quiet:
+  without this alarm, the fast pickup of a new table could stay broken
   unseen. A failed run does not count toward the window's quiet runs, so
-  a persistent fault fails all 31 runs, while a three-minute blip fails
-  about three.
+  a persistent fault fails all 31 runs (at least 16 on one side of any
+  hour boundary), while a three-minute blip fails about three.
 - Function errors: the function's `AWS/Lambda` `Errors` metric, Sum over
   300 seconds >= 1, missing data not breaching. It reports what the code
   cannot log: a sync run killed by the timeout, a failed start, a crashed
@@ -567,8 +576,8 @@ the same style, each with `alarm_actions` and `ok_actions` on
   fires when two hourly checks in a row have not succeeded, about two and
   a half hours after the last success, and also when the schedule stops
   firing. It is the backstop for a silent stop; the alarms above report a
-  crash within minutes, failing window runs within their hour and other
-  failed runs within two hours.
+  crash within minutes, failing window runs within their hour and failing
+  hourly runs within two hours.
 
 An OK email means a period passed without the alarm's condition, not
 that the cause is fixed. The budget's service filter gains Amazon

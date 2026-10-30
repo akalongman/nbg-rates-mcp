@@ -161,6 +161,11 @@ the same style:
   lookup, that OK means five minutes without a failed lookup (which also
   happens when nobody uses the endpoint, so it does not prove NBG is
   back), and names the function log group and how to see the kind.
+  Changed on 2026-10-31 to read the metric through `FILL(m, 0)`: with
+  missing data CloudWatch looked back for the last real datapoint, so the
+  one failed lookup of 2026-10-19 at 06:32 held the alarm in ALARM until
+  06:52, not five minutes. A quiet five minutes is now a zero, and OK
+  comes as this design intends.
 - `docs/aws.md` in that repository lists the new alarm with the others.
 - One alarm, not one per kind: either kind needs a person to look, and
   the log line says which one it was.
