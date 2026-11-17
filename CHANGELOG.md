@@ -36,7 +36,7 @@ Changed: the Georgian landing page writes dates in the standard order (`2026 წ
 
 ## 0.6.0 - 2026-10-15
 
-Added: a landing page at https://nbg-rates.env.ge, in English and in Georgian at `/ka`, with setup steps for claude.ai, ChatGPT, Claude Desktop and Claude Code, a short demo conversation, and the privacy and terms sections the Anthropic and OpenAI directories ask for; an icon redrawn without a font dependency, served as a favicon, a touch icon and a 1200 by 630 share card; the hosted server's icon in `serverInfo.icons` and in `server.json`; `/.well-known/openai-apps-challenge` and the `NBG_RATES_OPENAI_CHALLENGE` variable for OpenAI's domain verification; `docs/directory-listings.md` with the listing texts and test cases.
+Added: a landing page at https://nbg-rates.env.ge, in English and in Georgian at `/ka`, with setup steps for claude.ai, ChatGPT, Claude Desktop and Claude Code, a short demo conversation, and the privacy and terms sections the Anthropic and OpenAI directories ask for; an icon redrawn without a font dependency, served as a favicon, a touch icon and a 1200 by 630 share card; the hosted server's icon in `serverInfo.icons` and in `server.json`; `/.well-known/openai-apps-challenge` and the `NBG_RATES_OPENAI_CHALLENGE` variable for OpenAI's domain verification.
 
 Changed: `server.json`, the server identity, `package.json` and the GitHub repository's homepage name https://nbg-rates.env.ge as the website; the Lambda entry returns non-text bodies base64 encoded; the release smoke test also checks `/favicon.ico`.
 

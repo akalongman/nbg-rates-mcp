@@ -715,11 +715,11 @@ sentence; the mirror's past tables stay but are no longer added to.
 - `2026-10-15-nbg-failure-alarm-design.md`: the non-goal on scheduled
   NBG traffic points here.
 - The privacy sentence, in `src/shell/site/copy-en.ts`,
-  `src/shell/site/copy-ka.ts`, `README.md` and the two places in
-  `docs/directory-listings.md`. In English: "The connector needs no
-  account and never records the amounts or currencies you ask about. For
-  a past date it keeps a copy of NBG's table the first time anyone asks;
-  the copy does not say who asked or when." In Georgian, as the owner
+  `src/shell/site/copy-ka.ts` and `README.md`. In English: "The connector
+  needs no account and never records the amounts or currencies you ask
+  about. For a past date it keeps a copy of NBG's table the first time
+  anyone asks; the copy does not say who asked or when." In Georgian, as
+  the owner
   confirmed on 2026-10-17: "კონექტორს რეგისტრაცია არ სჭირდება და არასოდეს
   ინახავს თანხებს ან ვალუტებს, რომლებზეც კითხულობთ. წარსული თარიღისთვის ის
   ინახავს ეროვნული ბანკის ცხრილის ასლს, როცა ვინმე მას პირველად მოითხოვს;

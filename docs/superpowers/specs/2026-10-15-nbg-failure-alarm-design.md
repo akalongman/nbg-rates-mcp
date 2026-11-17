@@ -139,8 +139,8 @@ answers that passed `requirePublished`), so the cache needs no change.
 The first log is described today as "which tool was called from which
 client". It becomes "which tool was called from which client and whether
 NBG answered", in `copy-en.ts` and with the same meaning in `copy-ka.ts`,
-and in the other copies of the same sentence: `README.md` (kept in step
-with the page by a test in `page.test.ts`) and `docs/directory-listings.md`.
+and in the other copy of the same sentence: `README.md` (kept in step
+with the page by a test in `page.test.ts`).
 The section is a promise and must match what the log holds. The Georgian
 wording is reviewed before release.
 

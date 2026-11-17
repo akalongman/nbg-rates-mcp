@@ -22,7 +22,7 @@ const USAGE_SENTENCE =
     'The logs are used only to keep the service running, to see which clients use it and to investigate errors or ' +
     'abuse; they are not sold, shared or used for advertising.';
 
-// What the first of the two logs holds; the page, the README and the directory listings describe it in these words.
+// What the first of the two logs holds; the page and the README describe it in these words.
 const FIRST_LOG = 'which tool was called from which client and whether NBG answered';
 
 function blocks(html: string, tag: 'style' | 'script'): string[] {
@@ -150,12 +150,10 @@ describe('the English copy', () => {
         expect(readme).toContain(USAGE_SENTENCE);
     });
 
-    it('describes the first log in the same words on the page, in the README and in the directory listings', () => {
+    it('describes the first log in the same words on the page and in the README', () => {
         const readme = readFileSync(new URL('../../../README.md', import.meta.url), 'utf8');
-        const listings = readFileSync(new URL('../../../docs/directory-listings.md', import.meta.url), 'utf8');
         expect(COPY_EN.privacy.join(' ')).toContain(FIRST_LOG);
         expect(readme).toContain(FIRST_LOG);
-        expect(listings).toContain(FIRST_LOG);
     });
 });
 

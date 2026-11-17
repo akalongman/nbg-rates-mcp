@@ -149,14 +149,14 @@ the designer, not the maintainer, and the maintainer may overturn them:
 - The OpenAI domain verification route.
 - Alarms that tell the maintainer when the endpoint fails or turns
   callers away, and a saved query that splits traffic by path and status.
-- The listing texts and the OpenAI test cases, written down in the
-  repository, ready to paste.
+- The listing texts and the OpenAI test cases, written down, ready to
+  paste.
 
 ## Non-goals
 
 - Submitting to either directory, verifying the developer identity with
   OpenAI, recording the demo video and building OpenAI's plugin ZIP: the
-  maintainer does these, with the texts from `docs/directory-listings.md`.
+  maintainer does these.
 - Anything on the `env.ge` apex.
 - Rewording the tool descriptions (see Background).
 - A content delivery network in front of the API. The page is small and
@@ -445,7 +445,8 @@ maintainer runs OpenAI's verification.
   points to the page for the steps and keeps its privacy paragraph in
   step with the page's; the environment table gains
   `NBG_RATES_OPENAI_CHALLENGE`.
-- `docs/directory-listings.md` (new): everything to paste, in English.
+- The listing texts, which the maintainer keeps outside the repository:
+  everything to paste, in English.
   For Anthropic: name, one-liner, description, categories, documentation
   URL (the page), privacy URL (`https://nbg-rates.env.ge/#privacy`),
   support contact (the GitHub issues URL), icon file. For OpenAI:
