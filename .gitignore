@@ -5,3 +5,4 @@ bundle/
 *.tgz
 *-lambda.zip
 .DS_Store
+docs/superpowers/plans/
