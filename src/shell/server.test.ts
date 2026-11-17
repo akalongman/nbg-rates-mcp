@@ -160,6 +160,18 @@ describe('describeError', () => {
 });
 
 describe('createServer', () => {
+    it('repeats every tool title in its annotations, where directory portals read it', async () => {
+        const client = await connectedClient();
+
+        const { tools } = await client.listTools();
+
+        expect(tools).toHaveLength(5);
+        for (const tool of tools) {
+            expect(tool.title).toMatch(/\S/);
+            expect(tool.annotations?.title).toBe(tool.title);
+        }
+    });
+
     it('registers the five nbg_ tools and the rates resource', async () => {
         const client = await connectedClient();
 

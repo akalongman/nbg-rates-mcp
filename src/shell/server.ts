@@ -83,6 +83,14 @@ export function describeError(error: RatesError): string {
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
 
+/**
+ * A read-only tool's title and annotations. The title goes in both places: MCP clients read the tool's own title, and
+ * directory portals (Anthropic's Connectors Directory) read annotations.title.
+ */
+function readOnlyTool(title: string) {
+    return { title, annotations: { ...READ_ONLY, title } };
+}
+
 const DATE_RULES =
     'Dates are calendar days in Tbilisi; the default is today. ' +
     'NBG sets a rate on business days around 17:00 Tbilisi time, valid from the next calendar day until the next rate, ' +
@@ -335,7 +343,7 @@ export function createServer(deps: ServerDeps): McpServer {
     server.registerTool(
         'nbg_get_rates',
         {
-            title: 'NBG rates for a date',
+            ...readOnlyTool('NBG rates for a date'),
             description:
                 'Official National Bank of Georgia (NBG) exchange rates of the Georgian lari (GEL) in force on one calendar date. ' +
                 'Every rate is GEL per ONE unit of the currency (NBG quotes some currencies per 10, 100, 1000 or 10000 units; ' +
@@ -345,7 +353,6 @@ export function createServer(deps: ServerDeps): McpServer {
                 DISPLAY_RULE,
             inputSchema: getRatesInput,
             outputSchema: getRatesOutput,
-            annotations: READ_ONLY,
         },
         async ({ date, currencies, language }) => {
             const resolved = resolveDate(date, deps.now());
@@ -368,7 +375,7 @@ export function createServer(deps: ServerDeps): McpServer {
     server.registerTool(
         'nbg_convert',
         {
-            title: 'Convert via NBG rate',
+            ...readOnlyTool('Convert via NBG rate'),
             description:
                 'Converts an amount between two currencies using the official NBG rate in force on a calendar date. ' +
                 'Either side may be GEL; a pair without GEL is converted through GEL (via: "GEL"). ' +
@@ -377,7 +384,6 @@ export function createServer(deps: ServerDeps): McpServer {
                 DATE_RULES,
             inputSchema: convertInput,
             outputSchema: convertOutput,
-            annotations: READ_ONLY,
         },
         async (request) => {
             const prepared = prepareConversion(request, deps.now());
@@ -400,7 +406,7 @@ export function createServer(deps: ServerDeps): McpServer {
     server.registerTool(
         'nbg_convert_many',
         {
-            title: 'Convert a list via NBG rates',
+            ...readOnlyTool('Convert a list via NBG rates'),
             description:
                 'Converts a list of amounts, each at the official NBG rate in force on its own date: one call for a ' +
                 'list of invoices. Items are answered independently; a bad date or code fails only its item, with the ' +
@@ -412,7 +418,6 @@ export function createServer(deps: ServerDeps): McpServer {
                 DATE_RULES,
             inputSchema: convertManyInput,
             outputSchema: convertManyOutput,
-            annotations: READ_ONLY,
         },
         async ({ items }) => success(await convertMany(items, deps)),
     );
@@ -420,14 +425,13 @@ export function createServer(deps: ServerDeps): McpServer {
     server.registerTool(
         'nbg_list_currencies',
         {
-            title: 'NBG currency list',
+            ...readOnlyTool('NBG currency list'),
             description:
                 'Lists every currency NBG publishes a GEL rate for today, with its name and the unit quantity NBG quotes it in. ' +
                 'NBG quoted other currencies in the past, so a code missing here may still have historical rates. ' +
                 LIST_RULE,
             inputSchema: listCurrenciesInput,
             outputSchema: listCurrenciesOutput,
-            annotations: READ_ONLY,
         },
         async ({ language }) => {
             const snapshot = await deps.service.getSnapshot({
@@ -447,7 +451,7 @@ export function createServer(deps: ServerDeps): McpServer {
     server.registerTool(
         'nbg_rate_history',
         {
-            title: 'NBG rate history',
+            ...readOnlyTool('NBG rate history'),
             description:
                 'Official NBG rate of one currency (GEL per one unit) in force on every calendar day of an inclusive range ' +
                 'of at most 366 days. Dates are calendar days in Tbilisi. Days without a rate of their own (Sundays, ' +
@@ -460,7 +464,6 @@ export function createServer(deps: ServerDeps): McpServer {
                 'One NBG request per call.',
             inputSchema: rateHistoryInput,
             outputSchema: rateHistoryOutput,
-            annotations: READ_ONLY,
         },
         async ({ currency, from, to }) => {
             const code = parseCurrencyCode(currency);
